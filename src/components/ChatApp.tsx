@@ -247,8 +247,7 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
             >
               <Send className="w-4 h-4" />
             </button>
-        </div>
-      </div>
+          </div>
         </div>
       </div>
 
