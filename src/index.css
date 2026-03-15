@@ -1,96 +1,90 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
-All colors MUST be HSL.
-*/
-
 @layer base {
   :root {
     --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-
+    --foreground: 260 30% 15%;
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-
+    --card-foreground: 260 30% 15%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
+    --popover-foreground: 260 30% 15%;
+    --primary: 263 70% 58%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 260 30% 96%;
+    --secondary-foreground: 260 30% 15%;
+    --muted: 260 15% 95%;
+    --muted-foreground: 260 10% 45%;
+    --accent: 263 70% 58%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 260 20% 90%;
+    --input: 260 20% 90%;
+    --ring: 263 70% 58%;
+    --radius: 1rem;
 
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
+    --ro-gradient: linear-gradient(135deg, hsl(220, 90%, 56%), hsl(263, 70%, 58%));
+    --ro-purple: 263 70% 58%;
+    --ro-blue: 220 90% 56%;
+    --ro-glow: 0 0 20px hsla(263, 70%, 58%, 0.3);
 
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
-
-    --radius: 0.5rem;
-
-    --sidebar-background: 0 0% 98%;
-
-    --sidebar-foreground: 240 5.3% 26.1%;
-
-    --sidebar-primary: 240 5.9% 10%;
-
-    --sidebar-primary-foreground: 0 0% 98%;
-
-    --sidebar-accent: 240 4.8% 95.9%;
-
-    --sidebar-accent-foreground: 240 5.9% 10%;
-
-    --sidebar-border: 220 13% 91%;
-
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    --user-bubble: 263 50% 95%;
+    --user-bubble-foreground: 260 30% 15%;
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
+    --background: 260 25% 8%;
+    --foreground: 260 10% 90%;
+    --card: 260 20% 12%;
+    --card-foreground: 260 10% 90%;
+    --popover: 260 20% 12%;
+    --popover-foreground: 260 10% 90%;
+    --primary: 263 70% 65%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 260 20% 16%;
+    --secondary-foreground: 260 10% 90%;
+    --muted: 260 15% 18%;
+    --muted-foreground: 260 10% 55%;
+    --accent: 263 60% 55%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 62% 30%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 260 15% 20%;
+    --input: 260 15% 20%;
+    --ring: 263 70% 65%;
 
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
+    --ro-gradient: linear-gradient(135deg, hsl(220, 80%, 60%), hsl(263, 60%, 65%));
+    --ro-glow: 0 0 30px hsla(263, 70%, 58%, 0.2);
 
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
+    --user-bubble: 260 20% 16%;
+    --user-bubble-foreground: 260 10% 90%;
+  }
 
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
+  /* Ryo Ai mode colors - warm dark */
+  .ryo-ai-mode {
+    --background: 240 15% 6%;
+    --foreground: 45 20% 90%;
+    --card: 240 12% 10%;
+    --card-foreground: 45 20% 90%;
+    --primary: 220 80% 60%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 12% 14%;
+    --secondary-foreground: 45 20% 90%;
+    --muted: 240 10% 15%;
+    --muted-foreground: 240 8% 50%;
+    --border: 240 10% 18%;
+    --input: 240 10% 18%;
+    --ring: 220 80% 60%;
 
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
+    --ro-gradient: linear-gradient(135deg, hsl(200, 80%, 50%), hsl(220, 80%, 60%));
+    --ro-glow: 0 0 30px hsla(220, 80%, 60%, 0.2);
 
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    --user-bubble: 240 12% 14%;
+    --user-bubble-foreground: 45 20% 90%;
   }
 }
 
@@ -98,8 +92,65 @@ All colors MUST be HSL.
   * {
     @apply border-border;
   }
-
   body {
     @apply bg-background text-foreground;
+    font-family: 'IBM Plex Sans Arabic', sans-serif;
   }
+}
+
+/* Streaming cursor */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+.streaming-cursor::after {
+  content: '▍';
+  animation: blink 1s infinite;
+  color: hsl(var(--primary));
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.3);
+  border-radius: 10px;
+}
+
+/* Markdown styles for Ro responses */
+.ro-markdown p {
+  margin-bottom: 0.75em;
+  line-height: 1.8;
+}
+.ro-markdown ul, .ro-markdown ol {
+  margin-bottom: 0.75em;
+  padding-right: 1.5em;
+}
+.ro-markdown li {
+  margin-bottom: 0.25em;
+}
+.ro-markdown code {
+  background: hsl(var(--muted));
+  padding: 0.15em 0.4em;
+  border-radius: 0.3em;
+  font-size: 0.9em;
+}
+.ro-markdown pre {
+  background: hsl(var(--muted));
+  padding: 1em;
+  border-radius: 0.75em;
+  overflow-x: auto;
+  margin-bottom: 0.75em;
+}
+.ro-markdown strong {
+  font-weight: 600;
+}
+.ro-markdown h1, .ro-markdown h2, .ro-markdown h3 {
+  font-weight: 700;
+  margin-bottom: 0.5em;
+  margin-top: 0.75em;
 }
