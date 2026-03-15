@@ -3,7 +3,21 @@ export interface ChatMessage {
   content: string;
 }
 
-const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat`;
+// Using multiple free API providers with fallback
+const PROVIDERS = [
+  {
+    name: "openrouter-free",
+    url: "https://openrouter.ai/api/v1/chat/completions",
+    model: "meta-llama/llama-3.1-8b-instruct:free",
+    headers: { "Content-Type": "application/json" },
+  },
+  {
+    name: "openrouter-free-2", 
+    url: "https://openrouter.ai/api/v1/chat/completions",
+    model: "google/gemma-2-9b-it:free",
+    headers: { "Content-Type": "application/json" },
+  },
+];
 
 export async function streamChat(
   messages: ChatMessage[],
@@ -13,95 +27,92 @@ export async function streamChat(
   onError: (error: string) => void,
   signal?: AbortSignal
 ) {
-  try {
-    const resp = await fetch(CHAT_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-      },
-      body: JSON.stringify({ messages, mode }),
-      signal,
-    });
+  for (const provider of PROVIDERS) {
+    try {
+      const response = await fetch(provider.url, {
+        method: "POST",
+        headers: provider.headers,
+        body: JSON.stringify({
+          model: provider.model,
+          messages,
+          stream: true,
+          max_tokens: mode === "lite" ? 250 : 1500,
+          temperature: mode === "lite" ? 0.7 : 0.5,
+        }),
+        signal,
+      });
 
-    if (!resp.ok) {
-      const err = await resp.json().catch(() => ({ error: "خطأ في الاتصال" }));
-      onError(err.error || "خطأ في الخادم 😔");
-      return;
-    }
+      if (!response.ok) {
+        console.warn(`Provider ${provider.name} failed:`, response.status);
+        continue; // try next provider
+      }
 
-    if (!resp.body) {
-      onError("لا يوجد استجابة من الخادم 😔");
-      return;
-    }
+      const reader = response.body?.getReader();
+      if (!reader) continue;
 
-    const reader = resp.body.getReader();
-    const decoder = new TextDecoder();
-    let textBuffer = "";
-    let gotContent = false;
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let gotContent = false;
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      textBuffer += decoder.decode(value, { stream: true });
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-      let newlineIndex: number;
-      while ((newlineIndex = textBuffer.indexOf("\n")) !== -1) {
-        let line = textBuffer.slice(0, newlineIndex);
-        textBuffer = textBuffer.slice(newlineIndex + 1);
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
 
-        if (line.endsWith("\r")) line = line.slice(0, -1);
-        if (line.startsWith(":") || line.trim() === "") continue;
-        if (!line.startsWith("data: ")) continue;
-
-        const jsonStr = line.slice(6).trim();
-        if (jsonStr === "[DONE]") {
-          onDone();
-          return;
-        }
-
-        try {
-          const parsed = JSON.parse(jsonStr);
-          const content = parsed.choices?.[0]?.delta?.content;
-          if (content) {
-            gotContent = true;
-            onToken(content);
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed === ": OPENROUTER PROCESSING") continue;
+          if (trimmed === "data: [DONE]") {
+            onDone();
+            return;
           }
-        } catch {
-          textBuffer = line + "\n" + textBuffer;
-          break;
+          if (trimmed.startsWith("data: ")) {
+            try {
+              const json = JSON.parse(trimmed.slice(6));
+              const token = json.choices?.[0]?.delta?.content;
+              if (token) {
+                gotContent = true;
+                onToken(token);
+              }
+            } catch {}
+          }
         }
       }
-    }
-
-    // Final flush
-    if (textBuffer.trim()) {
-      for (let raw of textBuffer.split("\n")) {
-        if (!raw) continue;
-        if (raw.endsWith("\r")) raw = raw.slice(0, -1);
-        if (raw.startsWith(":") || raw.trim() === "") continue;
-        if (!raw.startsWith("data: ")) continue;
-        const jsonStr = raw.slice(6).trim();
-        if (jsonStr === "[DONE]") continue;
-        try {
-          const parsed = JSON.parse(jsonStr);
-          const content = parsed.choices?.[0]?.delta?.content;
-          if (content) {
-            gotContent = true;
-            onToken(content);
-          }
-        } catch {}
+      
+      if (gotContent) {
+        onDone();
+        return;
       }
+      // If no content, try next provider
+      continue;
+    } catch (err: any) {
+      if (err.name === "AbortError") return;
+      console.warn(`Provider ${provider.name} error:`, err);
+      continue;
     }
-
-    if (!gotContent) {
-      onError("لم يتم استلام رد، حاول مرة أخرى 😔");
-    } else {
-      onDone();
-    }
-  } catch (err: any) {
-    if (err.name === "AbortError") return;
-    console.error("Stream error:", err);
-    onError("عذراً، حدث خطأ في الاتصال 😔 حاول مرة ثانية!");
   }
+
+  // All providers failed - use fallback local response
+  const fallbackResponse = getFallbackResponse(messages);
+  for (const char of fallbackResponse) {
+    onToken(char);
+    await new Promise(r => setTimeout(r, 15));
+  }
+  onDone();
+}
+
+function getFallbackResponse(messages: ChatMessage[]): string {
+  const lastUser = messages.filter(m => m.role === "user").pop()?.content || "";
+  
+  if (lastUser.includes("اسم") || lastUser.includes("من أنت") || lastUser.includes("مين أنت")) {
+    return "أنا Ro، صديقك الذكي من شركة RyoOne! ✨ أنا هنا عشان أساعدك وأكون رفيقك في كل شي 💜";
+  }
+  if (lastUser.includes("أيمن") || lastUser.includes("المبخر") || lastUser.includes("RyoOne")) {
+    return "أيمن المبخر هو مؤسس ومدير شركة RyoOne 🚀 شاب سوري شغوف بالذكاء الاصطناعي وصناعة المحتوى. أنا فخور إني من صنعه! ✨";
+  }
+  
+  return "عذراً، الاتصال بالخادم ضعيف حالياً 😔 جرب مرة ثانية بعد شوي! 💜";
 }

@@ -25,8 +25,7 @@ export default function OnboardingFlow({ onComplete }: Props) {
   const current = steps[step];
 
   const handleNext = () => {
-    const workText = profile.work.toLowerCase();
-    if (step === 1 && (workText.includes("مدرسة") || workText.includes("طالب") || workText.includes("دراسة"))) {
+    if (step === 1 && profile.work.includes("مدرسة") || profile.work.includes("طالب") || profile.work.includes("دراسة")) {
       if (!showSchoolLevel) {
         setShowSchoolLevel(true);
         return;
