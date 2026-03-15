@@ -3,14 +3,21 @@ export interface ChatMessage {
   content: string;
 }
 
-// Using free Groq API alternative - we'll use the free tier of together.ai or groq
-// For truly free lifetime, we use the Cerebras inference API (free tier)
-// Fallback: use a free model via OpenRouter free tier
-
-const API_URL = "https://openrouter.ai/api/v1/chat/completions";
-
-// OpenRouter has free models - no API key needed for some, but we use their free tier
-// We'll use a free model that works without auth: meta-llama/llama-3.1-8b-instruct:free
+// Using multiple free API providers with fallback
+const PROVIDERS = [
+  {
+    name: "openrouter-free",
+    url: "https://openrouter.ai/api/v1/chat/completions",
+    model: "meta-llama/llama-3.1-8b-instruct:free",
+    headers: { "Content-Type": "application/json" },
+  },
+  {
+    name: "openrouter-free-2", 
+    url: "https://openrouter.ai/api/v1/chat/completions",
+    model: "google/gemma-2-9b-it:free",
+    headers: { "Content-Type": "application/json" },
+  },
+];
 
 export async function streamChat(
   messages: ChatMessage[],
@@ -20,72 +27,92 @@ export async function streamChat(
   onError: (error: string) => void,
   signal?: AbortSignal
 ) {
-  const model = mode === "lite" 
-    ? "meta-llama/llama-3.1-8b-instruct:free"
-    : "meta-llama/llama-3.1-8b-instruct:free";
+  for (const provider of PROVIDERS) {
+    try {
+      const response = await fetch(provider.url, {
+        method: "POST",
+        headers: provider.headers,
+        body: JSON.stringify({
+          model: provider.model,
+          messages,
+          stream: true,
+          max_tokens: mode === "lite" ? 250 : 1500,
+          temperature: mode === "lite" ? 0.7 : 0.5,
+        }),
+        signal,
+      });
 
-  try {
-    const response = await fetch(API_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model,
-        messages,
-        stream: true,
-        max_tokens: mode === "lite" ? 300 : 1500,
-        temperature: mode === "lite" ? 0.7 : 0.6,
-      }),
-      signal,
-    });
+      if (!response.ok) {
+        console.warn(`Provider ${provider.name} failed:`, response.status);
+        continue; // try next provider
+      }
 
-    if (!response.ok) {
-      // Fallback to non-streaming
-      const errText = await response.text();
-      console.error("API error:", errText);
-      onError("حدث خطأ في الاتصال، جاري إعادة المحاولة...");
-      return;
-    }
+      const reader = response.body?.getReader();
+      if (!reader) continue;
 
-    const reader = response.body?.getReader();
-    if (!reader) {
-      onError("لم يتم الاتصال بالخادم");
-      return;
-    }
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let gotContent = false;
 
-    const decoder = new TextDecoder();
-    let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
 
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() || "";
-
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed || trimmed === "data: [DONE]") {
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed === ": OPENROUTER PROCESSING") continue;
           if (trimmed === "data: [DONE]") {
             onDone();
             return;
           }
-          continue;
-        }
-        if (trimmed.startsWith("data: ")) {
-          try {
-            const json = JSON.parse(trimmed.slice(6));
-            const token = json.choices?.[0]?.delta?.content;
-            if (token) onToken(token);
-          } catch {}
+          if (trimmed.startsWith("data: ")) {
+            try {
+              const json = JSON.parse(trimmed.slice(6));
+              const token = json.choices?.[0]?.delta?.content;
+              if (token) {
+                gotContent = true;
+                onToken(token);
+              }
+            } catch {}
+          }
         }
       }
+      
+      if (gotContent) {
+        onDone();
+        return;
+      }
+      // If no content, try next provider
+      continue;
+    } catch (err: any) {
+      if (err.name === "AbortError") return;
+      console.warn(`Provider ${provider.name} error:`, err);
+      continue;
     }
-    onDone();
-  } catch (err: any) {
-    if (err.name === "AbortError") return;
-    onError("خطأ في الاتصال بالإنترنت 😔");
   }
+
+  // All providers failed - use fallback local response
+  const fallbackResponse = getFallbackResponse(messages);
+  for (const char of fallbackResponse) {
+    onToken(char);
+    await new Promise(r => setTimeout(r, 15));
+  }
+  onDone();
+}
+
+function getFallbackResponse(messages: ChatMessage[]): string {
+  const lastUser = messages.filter(m => m.role === "user").pop()?.content || "";
+  
+  if (lastUser.includes("اسم") || lastUser.includes("من أنت") || lastUser.includes("مين أنت")) {
+    return "أنا Ro، صديقك الذكي من شركة RyoOne! ✨ أنا هنا عشان أساعدك وأكون رفيقك في كل شي 💜";
+  }
+  if (lastUser.includes("أيمن") || lastUser.includes("المبخر") || lastUser.includes("RyoOne")) {
+    return "أيمن المبخر هو مؤسس ومدير شركة RyoOne 🚀 شاب سوري شغوف بالذكاء الاصطناعي وصناعة المحتوى. أنا فخور إني من صنعه! ✨";
+  }
+  
+  return "عذراً، الاتصال بالخادم ضعيف حالياً 😔 جرب مرة ثانية بعد شوي! 💜";
 }
