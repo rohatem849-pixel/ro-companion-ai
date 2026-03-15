@@ -204,7 +204,11 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
                     Ro
                   </span>
                 </h2>
-                <p className="text-lg font-medium text-muted-foreground">صديقك الذكي ✨</p>
+                <p className="text-lg font-medium text-muted-foreground">
+                  {mode === "lite" 
+                    ? "صديقك الذكي من RyoOne ✨" 
+                    : "نسختك المتقدمة من RyoOne 🧠"}
+                </p>
               </div>
             </motion.div>
           )}
