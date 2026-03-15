@@ -247,10 +247,8 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
             >
               <Send className="w-4 h-4" />
             </button>
-          </div>
-          <p className="text-center text-[10px] text-muted-foreground mt-2">
-            {mode === "lite" ? "⚡ Lite — ردود سريعة ومختصرة" : "🧠 Ryo Ai — تفكير عميق ودقيق"}
-          </p>
+        </div>
+      </div>
         </div>
       </div>
 
