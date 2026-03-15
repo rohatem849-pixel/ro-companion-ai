@@ -204,7 +204,11 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
                     Ro
                   </span>
                 </h2>
-                <p className="text-lg font-medium text-muted-foreground">صديقك الذكي ✨</p>
+                <p className="text-lg font-medium text-muted-foreground">
+                  {mode === "lite" 
+                    ? "صديقك الذكي من RyoOne ✨" 
+                    : "نسختك المتقدمة من RyoOne 🧠"}
+                </p>
               </div>
             </motion.div>
           )}
@@ -244,9 +248,6 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
               <Send className="w-4 h-4" />
             </button>
           </div>
-          <p className="text-center text-[10px] text-muted-foreground mt-2">
-            {mode === "lite" ? "⚡ Lite — ردود سريعة ومختصرة" : "🧠 Ryo Ai — تفكير عميق ودقيق"}
-          </p>
         </div>
       </div>
 
