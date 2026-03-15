@@ -1,14 +1,37 @@
-// Update this page (the content is just a fallback if you fail to update the page)
+import { useState, useEffect } from "react";
+import { AnimatePresence } from "framer-motion";
+import OnboardingFlow from "@/components/OnboardingFlow";
+import ChatApp from "@/components/ChatApp";
+import { UserProfile, getProfile, saveProfile } from "@/lib/userProfile";
 
-const Index = () => {
+export default function Index() {
+  const [profile, setProfile] = useState<UserProfile>(getProfile());
+  const [showOnboarding, setShowOnboarding] = useState(false);
+
+  useEffect(() => {
+    const p = getProfile();
+    setProfile(p);
+    if (!p.onboardingDone) {
+      setShowOnboarding(true);
+    }
+  }, []);
+
+  const handleOnboardingComplete = (p: UserProfile) => {
+    setProfile(p);
+    setShowOnboarding(false);
+  };
+
+  const handleProfileUpdate = (p: UserProfile) => {
+    saveProfile(p);
+    setProfile(p);
+  };
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background">
-      <div className="text-center">
-        <h1 className="mb-4 text-4xl font-bold">Welcome to Your Blank App</h1>
-        <p className="text-xl text-muted-foreground">Start building your amazing project here!</p>
-      </div>
-    </div>
+    <>
+      <AnimatePresence>
+        {showOnboarding && <OnboardingFlow onComplete={handleOnboardingComplete} />}
+      </AnimatePresence>
+      <ChatApp profile={profile} onProfileUpdate={handleProfileUpdate} />
+    </>
   );
-};
-
-export default Index;
+}
