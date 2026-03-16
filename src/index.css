@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@300;400;500;600;700&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -64,27 +64,62 @@
     --user-bubble-foreground: 260 10% 90%;
   }
 
-  /* Ryo Ai mode colors - warm dark */
+  /* Ryo Ai mode - deep dark elegant */
   .ryo-ai-mode {
-    --background: 240 15% 6%;
-    --foreground: 45 20% 90%;
-    --card: 240 12% 10%;
-    --card-foreground: 45 20% 90%;
-    --primary: 220 80% 60%;
+    --background: 230 20% 8%;
+    --foreground: 220 15% 88%;
+    --card: 230 18% 12%;
+    --card-foreground: 220 15% 88%;
+    --popover: 230 18% 12%;
+    --popover-foreground: 220 15% 88%;
+    --primary: 220 75% 55%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 240 12% 14%;
-    --secondary-foreground: 45 20% 90%;
-    --muted: 240 10% 15%;
-    --muted-foreground: 240 8% 50%;
-    --border: 240 10% 18%;
-    --input: 240 10% 18%;
-    --ring: 220 80% 60%;
+    --secondary: 230 15% 15%;
+    --secondary-foreground: 220 15% 88%;
+    --muted: 230 12% 18%;
+    --muted-foreground: 220 10% 50%;
+    --accent: 220 75% 55%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 70% 50%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 230 12% 20%;
+    --input: 230 12% 20%;
+    --ring: 220 75% 55%;
 
-    --ro-gradient: linear-gradient(135deg, hsl(200, 80%, 50%), hsl(220, 80%, 60%));
-    --ro-glow: 0 0 30px hsla(220, 80%, 60%, 0.2);
+    --ro-gradient: linear-gradient(135deg, hsl(200, 80%, 50%), hsl(220, 75%, 55%));
+    --ro-glow: 0 0 30px hsla(220, 75%, 55%, 0.2);
 
-    --user-bubble: 240 12% 14%;
-    --user-bubble-foreground: 45 20% 90%;
+    --user-bubble: 230 15% 15%;
+    --user-bubble-foreground: 220 15% 88%;
+  }
+
+  /* Ryo Ai light variant */
+  .ryo-ai-mode.ryo-light {
+    --background: 220 20% 95%;
+    --foreground: 230 25% 18%;
+    --card: 220 20% 98%;
+    --card-foreground: 230 25% 18%;
+    --popover: 220 20% 98%;
+    --popover-foreground: 230 25% 18%;
+    --primary: 220 75% 50%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 20% 92%;
+    --secondary-foreground: 230 25% 18%;
+    --muted: 220 15% 90%;
+    --muted-foreground: 220 10% 45%;
+    --accent: 220 75% 50%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 18% 88%;
+    --input: 220 18% 88%;
+    --ring: 220 75% 50%;
+
+    --ro-gradient: linear-gradient(135deg, hsl(200, 80%, 45%), hsl(220, 75%, 50%));
+    --ro-glow: 0 0 20px hsla(220, 75%, 50%, 0.15);
+
+    --user-bubble: 220 30% 92%;
+    --user-bubble-foreground: 230 25% 18%;
   }
 }
 
@@ -94,7 +129,7 @@
   }
   body {
     @apply bg-background text-foreground;
-    font-family: 'IBM Plex Sans Arabic', sans-serif;
+    font-family: 'Noto Sans Arabic', sans-serif;
   }
 }
 
@@ -124,7 +159,7 @@
 /* Markdown styles for Ro responses */
 .ro-markdown p {
   margin-bottom: 0.75em;
-  line-height: 1.8;
+  line-height: 1.9;
 }
 .ro-markdown ul, .ro-markdown ol {
   margin-bottom: 0.75em;
@@ -153,4 +188,13 @@
   font-weight: 700;
   margin-bottom: 0.5em;
   margin-top: 0.75em;
+}
+
+/* Fade in animation */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out;
 }

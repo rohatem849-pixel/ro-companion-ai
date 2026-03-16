@@ -2,6 +2,7 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ArrowLeft, ArrowRight, X } from "lucide-react";
 import { UserProfile, saveProfile } from "@/lib/userProfile";
+import { validateProfileField } from "@/lib/inputValidation";
 
 interface Props {
   onComplete: (profile: UserProfile) => void;
@@ -21,25 +22,42 @@ export default function OnboardingFlow({ onComplete }: Props) {
     importantNotes: "", badHabit: "", goodHabit: "", onboardingDone: false,
   });
   const [showSchoolLevel, setShowSchoolLevel] = useState(false);
+  const [error, setError] = useState("");
 
   const current = steps[step];
 
+  const validateAndProceed = (key: string, value: string, next: () => void) => {
+    const v = validateProfileField(key, value);
+    if (!v.valid) {
+      setError(v.message || "");
+      return;
+    }
+    setError("");
+    next();
+  };
+
   const handleNext = () => {
-    if (step === 1 && profile.work.includes("مدرسة") || profile.work.includes("طالب") || profile.work.includes("دراسة")) {
-      if (!showSchoolLevel) {
-        setShowSchoolLevel(true);
-        return;
+    const currentKey = showSchoolLevel ? "schoolLevel" : current.key;
+    const currentVal = (profile as any)[currentKey] || "";
+
+    validateAndProceed(currentKey, currentVal, () => {
+      if (step === 1 && (profile.work.includes("مدرسة") || profile.work.includes("طالب") || profile.work.includes("دراسة"))) {
+        if (!showSchoolLevel) {
+          setShowSchoolLevel(true);
+          return;
+        }
       }
-    }
-    setShowSchoolLevel(false);
-    if (step < steps.length - 1) {
-      setStep(step + 1);
-    } else {
-      finishOnboarding();
-    }
+      setShowSchoolLevel(false);
+      if (step < steps.length - 1) {
+        setStep(step + 1);
+      } else {
+        finishOnboarding();
+      }
+    });
   };
 
   const handlePrev = () => {
+    setError("");
     if (showSchoolLevel) {
       setShowSchoolLevel(false);
       return;
@@ -48,6 +66,7 @@ export default function OnboardingFlow({ onComplete }: Props) {
   };
 
   const skipQuestion = () => {
+    setError("");
     setShowSchoolLevel(false);
     if (step < steps.length - 1) setStep(step + 1);
     else finishOnboarding();
@@ -63,6 +82,7 @@ export default function OnboardingFlow({ onComplete }: Props) {
 
   const updateField = (key: string, value: string) => {
     setProfile(prev => ({ ...prev, [key]: value }));
+    setError("");
   };
 
   return (
@@ -102,6 +122,7 @@ export default function OnboardingFlow({ onComplete }: Props) {
                   onChange={e => updateField("schoolLevel", e.target.value)}
                   onKeyDown={e => e.key === "Enter" && handleNext()}
                 />
+                {error && <p className="text-[11px] text-destructive">{error}</p>}
               </div>
             ) : (
               <div className="flex flex-col gap-4">
@@ -115,6 +136,7 @@ export default function OnboardingFlow({ onComplete }: Props) {
                   onKeyDown={e => e.key === "Enter" && handleNext()}
                   autoFocus
                 />
+                {error && <p className="text-[11px] text-destructive">{error}</p>}
               </div>
             )}
           </motion.div>
