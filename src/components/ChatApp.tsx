@@ -1,17 +1,20 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Moon, Sun, Settings, ListTodo, Sparkles, Zap } from "lucide-react";
+import { Send, Moon, Sun, Settings, ListTodo, Sparkles, Zap, Mic, MicOff, Search, X } from "lucide-react";
 import ChatMessage from "./ChatMessage";
 import TasksPanel from "./TasksPanel";
 import SettingsPanel from "./SettingsPanel";
 import { UserProfile, Task, getProfile, getTasks, saveTasks, buildSystemPrompt } from "@/lib/userProfile";
 import { streamChat, ChatMessage as AIChatMessage } from "@/lib/aiApi";
+import { searchWeb, needsWebSearch, SearchResult } from "@/lib/webSearch";
 import roLogo from "@/assets/ro-logo.png";
 
 interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
+  searchResults?: SearchResult[];
+  isSearching?: boolean;
 }
 
 interface Props {
@@ -25,12 +28,16 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
   const [isStreaming, setIsStreaming] = useState(false);
   const [mode, setMode] = useState<"lite" | "ryo">("lite");
   const [isDark, setIsDark] = useState(false);
+  const [ryoLight, setRyoLight] = useState(false);
   const [showTasks, setShowTasks] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [tasks, setTasks] = useState<Task[]>(getTasks());
+  const [isListening, setIsListening] = useState(false);
+  const [searchMode, setSearchMode] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const recognitionRef = useRef<any>(null);
 
   const scrollToBottom = () => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -43,18 +50,29 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
   useEffect(() => {
     const root = document.documentElement;
     if (mode === "ryo") {
+      root.classList.remove("dark");
       root.classList.add("ryo-ai-mode");
-      root.classList.add("dark");
+      if (ryoLight) {
+        root.classList.add("ryo-light");
+      } else {
+        root.classList.remove("ryo-light");
+      }
     } else {
-      root.classList.remove("ryo-ai-mode");
-      if (!isDark) root.classList.remove("dark");
+      root.classList.remove("ryo-ai-mode", "ryo-light");
+      if (isDark) {
+        root.classList.add("dark");
+      } else {
+        root.classList.remove("dark");
+      }
     }
-  }, [mode, isDark]);
+  }, [mode, isDark, ryoLight]);
 
   const toggleDark = () => {
-    if (mode === "ryo") return;
-    setIsDark(!isDark);
-    document.documentElement.classList.toggle("dark");
+    if (mode === "ryo") {
+      setRyoLight(!ryoLight);
+    } else {
+      setIsDark(!isDark);
+    }
   };
 
   const switchMode = (newMode: "lite" | "ryo") => {
@@ -64,7 +82,40 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
     if (abortRef.current) abortRef.current.abort();
   };
 
-  const sendMessage = useCallback(async (text?: string, regenerateIndex?: number) => {
+  // Voice input
+  const startListening = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = "ar-SA";
+    recognition.interimResults = false;
+    recognition.continuous = false;
+
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript;
+      if (transcript.trim()) {
+        sendMessage(transcript.trim());
+      }
+      setIsListening(false);
+    };
+
+    recognition.onerror = () => setIsListening(false);
+    recognition.onend = () => setIsListening(false);
+
+    recognitionRef.current = recognition;
+    recognition.start();
+    setIsListening(true);
+  };
+
+  const stopListening = () => {
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+    }
+    setIsListening(false);
+  };
+
+  const sendMessage = useCallback(async (text?: string, regenerateIndex?: number, forceSearch?: boolean) => {
     const userText = text || input.trim();
     if (!userText && regenerateIndex === undefined) return;
 
@@ -82,13 +133,39 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
     setMessages(updatedMessages);
     setIsStreaming(true);
 
+    const assistantId = (Date.now() + 1).toString();
+    
+    // Check if search is needed
+    const shouldSearch = forceSearch || searchMode || needsWebSearch(userText);
+    let searchResults: SearchResult[] = [];
+
+    if (shouldSearch) {
+      setMessages(prev => [...prev, { id: assistantId, role: "assistant", content: "", isSearching: true }]);
+      try {
+        searchResults = await searchWeb(userText);
+      } catch {}
+      setSearchMode(false);
+    }
+
+    // Build search context for AI
+    let searchContext = "";
+    if (searchResults.length > 0) {
+      searchContext = "\n\nنتائج البحث من الإنترنت (استخدمها للإجابة بدقة):\n" +
+        searchResults.map((r, i) => `[${i + 1}] ${r.title}: ${r.snippet}`).join("\n");
+    }
+
     const aiMessages: AIChatMessage[] = [
-      { role: "system", content: buildSystemPrompt(profile, tasks, mode) },
+      { role: "system", content: buildSystemPrompt(profile, tasks, mode) + searchContext },
       ...updatedMessages.map(m => ({ role: m.role as "user" | "assistant", content: m.content })),
     ];
 
-    const assistantId = (Date.now() + 1).toString();
-    setMessages(prev => [...prev, { id: assistantId, role: "assistant", content: "" }]);
+    setMessages(prev => {
+      const existing = prev.find(m => m.id === assistantId);
+      if (existing) {
+        return prev.map(m => m.id === assistantId ? { ...m, content: "", isSearching: false, searchResults } : m);
+      }
+      return [...prev, { id: assistantId, role: "assistant" as const, content: "", searchResults }];
+    });
 
     abortRef.current = new AbortController();
 
@@ -109,7 +186,7 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
       },
       abortRef.current.signal
     );
-  }, [input, messages, profile, tasks, mode]);
+  }, [input, messages, profile, tasks, mode, searchMode]);
 
   const handleRegenerate = (index: number) => {
     sendMessage(undefined, index);
@@ -163,7 +240,7 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
           </div>
 
           <button onClick={toggleDark} className="p-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-secondary transition-all">
-            {isDark || mode === "ryo" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            {(mode === "ryo" ? !ryoLight : isDark) ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
           </button>
           <button onClick={() => setShowTasks(!showTasks)} className="p-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-secondary transition-all">
             <ListTodo className="w-4 h-4" />
@@ -183,7 +260,7 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
             exit={{ height: 0, opacity: 0 }}
             className="border-b overflow-hidden bg-card"
           >
-            <TasksPanel tasks={tasks} onUpdate={setTasks} />
+            <TasksPanel tasks={tasks} onUpdate={setTasks} onClose={() => setShowTasks(false)} />
           </motion.div>
         )}
       </AnimatePresence>
@@ -216,6 +293,8 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
               content={msg.content}
               isStreaming={isStreaming && i === messages.length - 1 && msg.role === "assistant"}
               onRegenerate={msg.role === "assistant" && !isStreaming ? () => handleRegenerate(i) : undefined}
+              searchResults={msg.searchResults}
+              isSearching={msg.isSearching}
             />
           ))}
           <div ref={chatEndRef} />
@@ -236,6 +315,27 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
               disabled={isStreaming}
               className="flex-1 bg-transparent outline-none text-sm resize-none text-foreground placeholder:text-muted-foreground leading-relaxed max-h-[120px]"
             />
+            {/* Search toggle */}
+            <button
+              onClick={() => setSearchMode(!searchMode)}
+              className={`p-2 rounded-xl transition-all flex-shrink-0 ${
+                searchMode ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground hover:bg-background"
+              }`}
+              title="بحث من الويب"
+            >
+              <Search className="w-4 h-4" />
+            </button>
+            {/* Mic button */}
+            <button
+              onClick={isListening ? stopListening : startListening}
+              disabled={isStreaming}
+              className={`p-2 rounded-xl transition-all flex-shrink-0 ${
+                isListening ? "bg-destructive text-destructive-foreground animate-pulse" : "text-muted-foreground hover:text-foreground hover:bg-background"
+              }`}
+              title={isListening ? "إيقاف" : "تحدث"}
+            >
+              {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+            </button>
             <button
               onClick={() => sendMessage()}
               disabled={!input.trim() || isStreaming}
@@ -246,6 +346,7 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
           </div>
           <p className="text-center text-[10px] text-muted-foreground mt-2">
             {mode === "lite" ? "⚡ Lite — ردود سريعة ومختصرة" : "🧠 Ryo Ai — تفكير عميق ودقيق"}
+            {searchMode && " 🔍 وضع البحث مفعّل"}
           </p>
         </div>
       </div>

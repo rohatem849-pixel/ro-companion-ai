@@ -1,13 +1,14 @@
 import { useState } from "react";
 import { Plus, X } from "lucide-react";
-import { Task, getTasks, saveTasks } from "@/lib/userProfile";
+import { Task, saveTasks } from "@/lib/userProfile";
 
 interface Props {
   tasks: Task[];
   onUpdate: (tasks: Task[]) => void;
+  onClose: () => void;
 }
 
-export default function TasksPanel({ tasks, onUpdate }: Props) {
+export default function TasksPanel({ tasks, onUpdate, onClose }: Props) {
   const [newTask, setNewTask] = useState("");
 
   const addTask = () => {
@@ -32,7 +33,12 @@ export default function TasksPanel({ tasks, onUpdate }: Props) {
 
   return (
     <div className="p-4 space-y-3" dir="rtl">
-      <h3 className="font-bold text-sm">📋 مهامك</h3>
+      <div className="flex items-center justify-between">
+        <h3 className="font-bold text-sm">📋 مهامك</h3>
+        <button onClick={onClose} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-all">
+          <X className="w-4 h-4" />
+        </button>
+      </div>
       <div className="flex gap-2">
         <input
           value={newTask}
