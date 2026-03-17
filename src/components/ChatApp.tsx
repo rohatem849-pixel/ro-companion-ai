@@ -22,6 +22,24 @@ interface Props {
   onProfileUpdate: (p: UserProfile) => void;
 }
 
+function buildAdminCandidates(rawName: string) {
+  const trimmed = rawName.trim();
+  if (!trimmed) return [] as Array<{ password: string; displayName: string }>;
+
+  const parts = trimmed.split(/\s+/).filter(Boolean);
+  const candidates = new Map<string, string>();
+
+  candidates.set(trimmed, "");
+
+  for (let i = 1; i < parts.length; i++) {
+    const password = parts.slice(i).join(" ").trim();
+    const displayName = parts.slice(0, i).join(" ").trim();
+    if (password) candidates.set(password, displayName);
+  }
+
+  return Array.from(candidates, ([password, displayName]) => ({ password, displayName }));
+}
+
 export default function ChatApp({ profile, onProfileUpdate }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -35,24 +53,43 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
   const [isListening, setIsListening] = useState(false);
   const [searchMode, setSearchMode] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [adminDisplayName, setAdminDisplayName] = useState("");
   const chatEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const recognitionRef = useRef<any>(null);
 
-  // Check admin status when profile name changes
   useEffect(() => {
-    const name = profile.name || "";
-    // Extract potential password from name (after the actual name)
-    const parts = name.split(" ");
-    if (parts.length > 1) {
-      const potentialPassword = parts.slice(1).join(" ");
-      checkAdminPassword(potentialPassword).then(result => {
-        setIsAdmin(result);
-      });
-    } else {
+    let cancelled = false;
+    const candidates = buildAdminCandidates(profile.name || "");
+
+    if (candidates.length === 0) {
       setIsAdmin(false);
+      setAdminDisplayName("");
+      return;
     }
+
+    const verifyAdmin = async () => {
+      for (const candidate of candidates) {
+        const result = await checkAdminPassword(candidate.password);
+        if (cancelled) return;
+
+        if (result) {
+          setIsAdmin(true);
+          setAdminDisplayName(candidate.displayName || "سيدي");
+          return;
+        }
+      }
+
+      setIsAdmin(false);
+      setAdminDisplayName("");
+    };
+
+    verifyAdmin();
+
+    return () => {
+      cancelled = true;
+    };
   }, [profile.name]);
 
   const scrollToBottom = () => {
@@ -163,10 +200,10 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
         searchResults.map((r, i) => `[${i + 1}] ${r.title}: ${r.snippet}`).join("\n");
     }
 
-    const displayName = isAdmin ? profile.name.split(" ")[0] : profile.name;
+    const promptDisplayName = isAdmin ? adminDisplayName : profile.name;
 
     const aiMessages: AIChatMessage[] = [
-      { role: "system", content: buildSystemPrompt({ ...profile, name: displayName }, tasks, mode, isAdmin) + searchContext },
+      { role: "system", content: buildSystemPrompt({ ...profile, name: promptDisplayName }, tasks, mode, isAdmin) + searchContext },
       ...updatedMessages.map(m => ({ role: m.role as "user" | "assistant", content: m.content })),
     ];
 
@@ -216,7 +253,7 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
     e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px";
   };
 
-  const displayName = isAdmin ? (profile.name || "").split(" ")[0] : (profile.name || "");
+  const displayName = isAdmin ? (adminDisplayName || "سيدي") : (profile.name || "");
 
   return (
     <div className="flex flex-col h-screen w-full transition-colors duration-500 bg-background">
