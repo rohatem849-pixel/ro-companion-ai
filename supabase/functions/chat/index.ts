@@ -9,15 +9,24 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { messages, mode, checkAdmin } = await req.json();
+    const body = await req.json();
+    const { messages, mode } = body;
+
+    // Admin password check - password never leaves the server
+    if ("checkAdmin" in body) {
+      const ADMIN_PASSWORD = Deno.env.get("ADMIN_PASSWORD");
+      const isAdmin = body.checkAdmin === ADMIN_PASSWORD;
+      return new Response(JSON.stringify({ isAdmin }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
 
-    // Admin password check - password never leaves the server
-    if (checkAdmin) {
-      const ADMIN_PASSWORD = Deno.env.get("ADMIN_PASSWORD");
-      const isAdmin = checkAdmin === ADMIN_PASSWORD;
-      return new Response(JSON.stringify({ isAdmin }), {
+    if (!messages || !Array.isArray(messages)) {
+      return new Response(JSON.stringify({ error: "messages مطلوبة" }), {
+        status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
