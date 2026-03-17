@@ -253,7 +253,7 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
     e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px";
   };
 
-  const displayName = isAdmin ? (profile.name || "").split(" ")[0] : (profile.name || "");
+  const displayName = isAdmin ? (adminDisplayName || "سيدي") : (profile.name || "");
 
   return (
     <div className="flex flex-col h-screen w-full transition-colors duration-500 bg-background">
