@@ -200,10 +200,10 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
         searchResults.map((r, i) => `[${i + 1}] ${r.title}: ${r.snippet}`).join("\n");
     }
 
-    const displayName = isAdmin ? profile.name.split(" ")[0] : profile.name;
+    const promptDisplayName = isAdmin ? adminDisplayName : profile.name;
 
     const aiMessages: AIChatMessage[] = [
-      { role: "system", content: buildSystemPrompt({ ...profile, name: displayName }, tasks, mode, isAdmin) + searchContext },
+      { role: "system", content: buildSystemPrompt({ ...profile, name: promptDisplayName }, tasks, mode, isAdmin) + searchContext },
       ...updatedMessages.map(m => ({ role: m.role as "user" | "assistant", content: m.content })),
     ];
 
