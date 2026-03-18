@@ -110,7 +110,7 @@ export async function streamChat(
   }
 }
 
-// Check admin password via backend (never exposed in frontend)
+// Check admin password via backend
 export async function checkAdminPassword(password: string): Promise<boolean> {
   try {
     const resp = await fetch(CHAT_URL, {
@@ -124,6 +124,25 @@ export async function checkAdminPassword(password: string): Promise<boolean> {
     if (!resp.ok) return false;
     const data = await resp.json();
     return data.isAdmin === true;
+  } catch {
+    return false;
+  }
+}
+
+// Save admin note to Ro's memory
+export async function saveAdminNote(password: string, note: string): Promise<boolean> {
+  try {
+    const resp = await fetch(CHAT_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+      },
+      body: JSON.stringify({ saveNote: note, adminPassword: password }),
+    });
+    if (!resp.ok) return false;
+    const data = await resp.json();
+    return data.success === true;
   } catch {
     return false;
   }
