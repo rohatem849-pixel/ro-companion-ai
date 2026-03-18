@@ -198,3 +198,25 @@
 .animate-fade-in {
   animation: fadeIn 0.3s ease-out;
 }
+
+/* Send button - Duolingo-style 3D */
+.ro-send-btn {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  box-shadow: 0 3px 0 0 hsl(var(--primary) / 0.6), 0 4px 8px -2px hsl(var(--primary) / 0.3);
+  transition: all 0.15s ease;
+}
+.ro-send-btn:active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 0 hsl(var(--primary) / 0.6);
+}
+.ro-send-btn:disabled {
+  box-shadow: none;
+}
+
+.dark .ro-send-btn {
+  box-shadow: 0 3px 0 0 hsl(var(--primary) / 0.4), 0 4px 8px -2px hsl(var(--primary) / 0.2);
+}
+.ryo-ai-mode .ro-send-btn {
+  box-shadow: 0 3px 0 0 hsl(var(--primary) / 0.4), 0 4px 8px -2px hsl(var(--primary) / 0.2);
+}
