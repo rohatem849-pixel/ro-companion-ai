@@ -21,65 +21,96 @@ serve(async (req) => {
 
     const results: any[] = [];
 
-    // Try multiple sources for best results
-
-    // 1. DuckDuckGo HTML search for fresh results
+    // 1. DuckDuckGo API
     try {
-      const ddgUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
-      const ddgRes = await fetch(ddgUrl, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; RoBot/1.0)' },
-      });
-      const html = await ddgRes.text();
-      
-      // Parse results from HTML
-      const resultRegex = /<a rel="nofollow" class="result__a" href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<a class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g;
-      let match;
-      let count = 0;
-      while ((match = resultRegex.exec(html)) !== null && count < 5) {
-        const url = match[1];
-        const title = match[2].replace(/<[^>]*>/g, '').trim();
-        const snippet = match[3].replace(/<[^>]*>/g, '').trim();
-        if (title && snippet && url) {
-          try {
-            const parsedUrl = new URL(url.startsWith('//') ? 'https:' + url : url);
+      const ddgUrl = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1&t=robot`;
+      const ddgRes = await fetch(ddgUrl);
+      const ddgData = await ddgRes.json();
+
+      if (ddgData.AbstractText) {
+        results.push({
+          title: ddgData.Heading || query,
+          snippet: ddgData.AbstractText,
+          url: ddgData.AbstractURL || "",
+          source: ddgData.AbstractSource || "DuckDuckGo",
+        });
+      }
+
+      if (ddgData.Answer) {
+        results.push({
+          title: query,
+          snippet: ddgData.Answer,
+          url: ddgData.AnswerURL || "",
+          source: "DuckDuckGo",
+        });
+      }
+
+      if (ddgData.RelatedTopics) {
+        for (const topic of ddgData.RelatedTopics.slice(0, 4)) {
+          if (topic.Text && topic.FirstURL) {
             results.push({
-              title,
-              snippet,
-              url: parsedUrl.toString(),
-              source: parsedUrl.hostname.replace('www.', ''),
+              title: topic.Text.substring(0, 80),
+              snippet: topic.Text,
+              url: topic.FirstURL,
+              source: new URL(topic.FirstURL).hostname.replace('www.', ''),
             });
-            count++;
-          } catch {}
+          }
+          // Handle subtopics
+          if (topic.Topics) {
+            for (const sub of topic.Topics.slice(0, 2)) {
+              if (sub.Text && sub.FirstURL) {
+                results.push({
+                  title: sub.Text.substring(0, 80),
+                  snippet: sub.Text,
+                  url: sub.FirstURL,
+                  source: new URL(sub.FirstURL).hostname.replace('www.', ''),
+                });
+              }
+            }
+          }
         }
       }
     } catch (e) {
-      console.error('DDG HTML search failed:', e);
+      console.error('DDG search failed:', e);
     }
 
-    // 2. Fallback: DuckDuckGo instant answer API
-    if (results.length < 3) {
-      try {
-        const ddgUrl = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
-        const ddgRes = await fetch(ddgUrl);
-        const ddgData = await ddgRes.json();
-
-        if (ddgData.AbstractText) {
-          results.push({
-            title: ddgData.Heading || query,
-            snippet: ddgData.AbstractText,
-            url: ddgData.AbstractURL || "",
-            source: ddgData.AbstractSource || "DuckDuckGo",
-          });
+    // 2. Arabic Wikipedia
+    try {
+      const wikiUrl = `https://ar.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&format=json&srlimit=3&utf8=`;
+      const wikiRes = await fetch(wikiUrl);
+      const wikiData = await wikiRes.json();
+      
+      if (wikiData.query?.search) {
+        for (const item of wikiData.query.search) {
+          const snippet = item.snippet.replace(/<[^>]*>/g, '').trim();
+          if (snippet) {
+            results.push({
+              title: item.title,
+              snippet,
+              url: `https://ar.wikipedia.org/wiki/${encodeURIComponent(item.title)}`,
+              source: "Wikipedia",
+            });
+          }
         }
+      }
+    } catch {}
 
-        if (ddgData.RelatedTopics) {
-          for (const topic of ddgData.RelatedTopics.slice(0, 3)) {
-            if (topic.Text && topic.FirstURL) {
+    // 3. English Wikipedia for broader topics
+    if (results.length < 4) {
+      try {
+        const wikiEnUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&format=json&srlimit=2&utf8=`;
+        const wikiEnRes = await fetch(wikiEnUrl);
+        const wikiEnData = await wikiEnRes.json();
+        
+        if (wikiEnData.query?.search) {
+          for (const item of wikiEnData.query.search) {
+            const snippet = item.snippet.replace(/<[^>]*>/g, '').trim();
+            if (snippet) {
               results.push({
-                title: topic.Text.substring(0, 80),
-                snippet: topic.Text,
-                url: topic.FirstURL,
-                source: "DuckDuckGo",
+                title: item.title,
+                snippet,
+                url: `https://en.wikipedia.org/wiki/${encodeURIComponent(item.title)}`,
+                source: "Wikipedia (EN)",
               });
             }
           }
@@ -87,30 +118,12 @@ serve(async (req) => {
       } catch {}
     }
 
-    // 3. Wikipedia for context
-    if (results.length < 5) {
-      try {
-        const wikiUrl = `https://ar.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(query)}`;
-        const wikiRes = await fetch(wikiUrl);
-        if (wikiRes.ok) {
-          const wikiData = await wikiRes.json();
-          if (wikiData.extract) {
-            results.push({
-              title: wikiData.title || query,
-              snippet: wikiData.extract,
-              url: wikiData.content_urls?.desktop?.page || "",
-              source: "Wikipedia",
-            });
-          }
-        }
-      } catch {}
-    }
-
-    // Deduplicate by URL
+    // Deduplicate
     const seen = new Set();
     const unique = results.filter(r => {
-      if (seen.has(r.url)) return false;
-      seen.add(r.url);
+      const key = r.url || r.title;
+      if (seen.has(key)) return false;
+      seen.add(key);
       return true;
     });
 
