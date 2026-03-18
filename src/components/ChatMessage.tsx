@@ -1,5 +1,5 @@
 import { memo, useState } from "react";
-import { Copy, Check, RefreshCw, Globe } from "lucide-react";
+import { Copy, Check, RefreshCw, Globe, ExternalLink } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { SearchResult } from "@/lib/webSearch";
 
@@ -10,9 +10,11 @@ interface Props {
   onRegenerate?: () => void;
   searchResults?: SearchResult[];
   isSearching?: boolean;
+  mode?: "lite" | "ryo";
+  hasImage?: boolean;
 }
 
-function ChatMessage({ role, content, isStreaming, onRegenerate, searchResults, isSearching }: Props) {
+function ChatMessage({ role, content, isStreaming, onRegenerate, searchResults, isSearching, mode = "lite", hasImage }: Props) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = () => {
@@ -23,8 +25,9 @@ function ChatMessage({ role, content, isStreaming, onRegenerate, searchResults, 
 
   if (role === "user") {
     return (
-      <div className="flex justify-end mb-4 animate-fade-in">
-        <div className="max-w-[85%] md:max-w-[70%] rounded-2xl rounded-tl-sm px-4 py-3 bg-user-bubble text-user-bubble-foreground text-sm leading-relaxed">
+      <div className="flex justify-end mb-3 animate-fade-in">
+        <div className="max-w-[85%] md:max-w-[70%] rounded-2xl rounded-tl-sm px-4 py-2.5 bg-user-bubble text-user-bubble-foreground text-sm leading-relaxed">
+          {hasImage && <span className="text-xs text-muted-foreground block mb-1">📷 صورة مرفقة</span>}
           {content}
         </div>
       </div>
@@ -32,38 +35,67 @@ function ChatMessage({ role, content, isStreaming, onRegenerate, searchResults, 
   }
 
   return (
-    <div className="mb-6 animate-fade-in group">
+    <div className="mb-5 animate-fade-in group">
+      {/* Loading animation */}
       {isSearching && (
         <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
           <Globe className="w-3.5 h-3.5 animate-spin" />
-          <span>جاري البحث...</span>
+          <span>جاري البحث في الويب...</span>
         </div>
       )}
+      
+      {/* Waiting animation (no content yet) */}
+      {isStreaming && !content && !isSearching && (
+        <div className="flex items-center gap-2 mb-2">
+          {mode === "lite" ? (
+            <div className="flex items-center gap-1.5 text-primary">
+              <span className="text-base animate-bounce" style={{ animationDelay: "0ms" }}>⚡</span>
+              <span className="text-xs text-muted-foreground">يجهز الرد...</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 text-primary">
+              <div className="flex gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" style={{ animationDelay: "0ms" }} />
+                <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" style={{ animationDelay: "200ms" }} />
+                <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" style={{ animationDelay: "400ms" }} />
+              </div>
+              <span className="text-xs text-muted-foreground">يفكر بعمق...</span>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className={`text-sm leading-[1.9] ro-markdown ${isStreaming ? "streaming-cursor" : ""}`}>
         <ReactMarkdown>{content || " "}</ReactMarkdown>
       </div>
+
       {/* Search sources */}
       {searchResults && searchResults.length > 0 && !isStreaming && (
-        <div className="mt-3 flex flex-wrap gap-2">
-          {searchResults.map((r, i) => (
-            <a
-              key={i}
-              href={r.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded-xl bg-secondary text-muted-foreground hover:text-foreground hover:bg-secondary/80 transition-all border"
-            >
-              <Globe className="w-3 h-3 flex-shrink-0" />
-              <span className="truncate max-w-[140px]">{r.source}</span>
-            </a>
-          ))}
+        <div className="mt-3 space-y-1.5">
+          <p className="text-[11px] text-muted-foreground font-medium">📎 المصادر:</p>
+          <div className="flex flex-wrap gap-1.5">
+            {searchResults.map((r, i) => (
+              <a
+                key={i}
+                href={r.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-lg bg-secondary text-muted-foreground hover:text-foreground hover:bg-secondary/80 transition-all border"
+              >
+                <Globe className="w-2.5 h-2.5 flex-shrink-0" />
+                <span className="truncate max-w-[120px]">{r.source}</span>
+                <ExternalLink className="w-2 h-2 flex-shrink-0 opacity-50" />
+              </a>
+            ))}
+          </div>
         </div>
       )}
+
       {!isStreaming && content && (
-        <div className="flex gap-1 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="flex gap-1 mt-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
           <button
             onClick={handleCopy}
-            className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-all"
+            className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-all"
             title="نسخ"
           >
             {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
@@ -71,7 +103,7 @@ function ChatMessage({ role, content, isStreaming, onRegenerate, searchResults, 
           {onRegenerate && (
             <button
               onClick={onRegenerate}
-              className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-all"
+              className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-all"
               title="إعادة صياغة"
             >
               <RefreshCw className="w-3.5 h-3.5" />
