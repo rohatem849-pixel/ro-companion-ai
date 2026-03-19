@@ -6,27 +6,52 @@ const corsHeaders = {
 };
 
 serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
-  }
+  if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
 
   try {
     const { query } = await req.json();
     if (!query) {
       return new Response(JSON.stringify({ error: 'Query required' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
     const results: any[] = [];
 
-    // 1. DuckDuckGo API
+    // 1. Google News RSS for fresh results
     try {
-      const ddgUrl = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1&t=robot`;
+      const gnUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=ar&gl=SA&ceid=SA:ar`;
+      const gnRes = await fetch(gnUrl, { headers: { "User-Agent": "Ro-Search/1.0" } });
+      if (gnRes.ok) {
+        const xml = await gnRes.text();
+        const itemRegex = /<item>([\s\S]*?)<\/item>/g;
+        let match;
+        let count = 0;
+        while ((match = itemRegex.exec(xml)) !== null && count < 3) {
+          const itemXml = match[1];
+          const title = itemXml.match(/<title>(.*?)<\/title>/)?.[1]?.replace(/<!\[CDATA\[|\]\]>/g, '') || "";
+          const link = itemXml.match(/<link>(.*?)<\/link>/)?.[1] || "";
+          const sourceMatch = itemXml.match(/<source[^>]*>(.*?)<\/source>/)?.[1] || "";
+          if (title && link) {
+            results.push({
+              title: title.replace(/<[^>]*>/g, '').trim(),
+              snippet: title.replace(/<[^>]*>/g, '').trim(),
+              url: link.trim(),
+              source: sourceMatch || "Google News",
+            });
+            count++;
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Google News failed:', e);
+    }
+
+    // 2. DuckDuckGo API
+    try {
+      const ddgUrl = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1&t=ro-search`;
       const ddgRes = await fetch(ddgUrl);
       const ddgData = await ddgRes.json();
-
       if (ddgData.AbstractText) {
         results.push({
           title: ddgData.Heading || query,
@@ -35,18 +60,11 @@ serve(async (req) => {
           source: ddgData.AbstractSource || "DuckDuckGo",
         });
       }
-
       if (ddgData.Answer) {
-        results.push({
-          title: query,
-          snippet: ddgData.Answer,
-          url: ddgData.AnswerURL || "",
-          source: "DuckDuckGo",
-        });
+        results.push({ title: query, snippet: ddgData.Answer, url: "", source: "DuckDuckGo" });
       }
-
       if (ddgData.RelatedTopics) {
-        for (const topic of ddgData.RelatedTopics.slice(0, 4)) {
+        for (const topic of ddgData.RelatedTopics.slice(0, 3)) {
           if (topic.Text && topic.FirstURL) {
             results.push({
               title: topic.Text.substring(0, 80),
@@ -55,31 +73,15 @@ serve(async (req) => {
               source: new URL(topic.FirstURL).hostname.replace('www.', ''),
             });
           }
-          // Handle subtopics
-          if (topic.Topics) {
-            for (const sub of topic.Topics.slice(0, 2)) {
-              if (sub.Text && sub.FirstURL) {
-                results.push({
-                  title: sub.Text.substring(0, 80),
-                  snippet: sub.Text,
-                  url: sub.FirstURL,
-                  source: new URL(sub.FirstURL).hostname.replace('www.', ''),
-                });
-              }
-            }
-          }
         }
       }
-    } catch (e) {
-      console.error('DDG search failed:', e);
-    }
+    } catch {}
 
-    // 2. Arabic Wikipedia
+    // 3. Arabic Wikipedia
     try {
-      const wikiUrl = `https://ar.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&format=json&srlimit=3&utf8=`;
+      const wikiUrl = `https://ar.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&format=json&srlimit=2&utf8=`;
       const wikiRes = await fetch(wikiUrl);
       const wikiData = await wikiRes.json();
-      
       if (wikiData.query?.search) {
         for (const item of wikiData.query.search) {
           const snippet = item.snippet.replace(/<[^>]*>/g, '').trim();
@@ -95,13 +97,12 @@ serve(async (req) => {
       }
     } catch {}
 
-    // 3. English Wikipedia for broader topics
-    if (results.length < 4) {
+    // 4. English Wikipedia
+    if (results.length < 5) {
       try {
         const wikiEnUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&format=json&srlimit=2&utf8=`;
         const wikiEnRes = await fetch(wikiEnUrl);
         const wikiEnData = await wikiEnRes.json();
-        
         if (wikiEnData.query?.search) {
           for (const item of wikiEnData.query.search) {
             const snippet = item.snippet.replace(/<[^>]*>/g, '').trim();
@@ -127,14 +128,13 @@ serve(async (req) => {
       return true;
     });
 
-    return new Response(JSON.stringify({ results: unique.slice(0, 6) }), {
+    return new Response(JSON.stringify({ results: unique.slice(0, 8) }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (error) {
     console.error('Search error:', error);
     return new Response(JSON.stringify({ error: 'Search failed', results: [] }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
 });
