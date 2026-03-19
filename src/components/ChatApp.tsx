@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Moon, Sun, Settings, ListTodo, Sparkles, Zap, Mic, Square, Search, Trash2, Image as ImageIcon } from "lucide-react";
+import { ArrowUp, Square, Moon, Sun, Settings, ListTodo, Globe, Mic, X, Search, Trash2, Plus, Camera, Image as ImageIcon, Check } from "lucide-react";
 import ChatMessage from "./ChatMessage";
 import TasksPanel from "./TasksPanel";
 import SettingsPanel from "./SettingsPanel";
+import NewsNotificationsPanel from "./NewsNotificationsPanel";
 import { UserProfile, Task, getTasks, saveTasks, buildSystemPrompt } from "@/lib/userProfile";
 import { streamChat, ChatMessage as AIChatMessage, checkAdminPassword, saveAdminNote } from "@/lib/aiApi";
 import { searchWeb, needsWebSearch, SearchResult } from "@/lib/webSearch";
@@ -15,7 +16,7 @@ interface Message {
   content: string;
   searchResults?: SearchResult[];
   isSearching?: boolean;
-  hasImage?: boolean;
+  imagePreview?: string;
 }
 
 interface Props {
@@ -46,27 +47,34 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
   const [ryoLight, setRyoLight] = useState(false);
   const [showTasks, setShowTasks] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showGlobePanel, setShowGlobePanel] = useState(false);
   const [tasks, setTasks] = useState<Task[]>(getTasks());
   const [isRecording, setIsRecording] = useState(false);
   const [searchMode, setSearchMode] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [adminDisplayName, setAdminDisplayName] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
+  const [showModelSelector, setShowModelSelector] = useState(false);
+  const [showAttachMenu, setShowAttachMenu] = useState(false);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [imageBase64, setImageBase64Data] = useState<string | null>(null);
+  const [stoppedResponse, setStoppedResponse] = useState(false);
+  const [recordingText, setRecordingText] = useState("");
+  const [notificationCount, setNotificationCount] = useState(0);
+
   const chatEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const recognitionRef = useRef<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [recordingText, setRecordingText] = useState("");
+  const cameraInputRef = useRef<HTMLInputElement>(null);
 
   // Admin verification
   useEffect(() => {
     let cancelled = false;
     const candidates = buildAdminCandidates(profile.name || "");
     if (candidates.length === 0) {
-      setIsAdmin(false);
-      setAdminDisplayName("");
-      setAdminPassword("");
+      setIsAdmin(false); setAdminDisplayName(""); setAdminPassword("");
       return;
     }
     const verifyAdmin = async () => {
@@ -80,9 +88,7 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
           return;
         }
       }
-      setIsAdmin(false);
-      setAdminDisplayName("");
-      setAdminPassword("");
+      setIsAdmin(false); setAdminDisplayName(""); setAdminPassword("");
     };
     verifyAdmin();
     return () => { cancelled = true; };
@@ -114,6 +120,7 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
     if (newMode === mode) return;
     setMessages([]);
     setMode(newMode);
+    setShowModelSelector(false);
     if (abortRef.current) abortRef.current.abort();
   };
 
@@ -121,6 +128,13 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
     setMessages([]);
     if (abortRef.current) abortRef.current.abort();
     setIsStreaming(false);
+    setStoppedResponse(false);
+  };
+
+  const stopStreaming = () => {
+    if (abortRef.current) abortRef.current.abort();
+    setIsStreaming(false);
+    setStoppedResponse(true);
   };
 
   // Voice recording
@@ -131,7 +145,6 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
     recognition.lang = "ar-SA";
     recognition.interimResults = true;
     recognition.continuous = true;
-
     recognition.onresult = (event: any) => {
       let transcript = "";
       for (let i = 0; i < event.results.length; i++) {
@@ -140,15 +153,20 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
       setRecordingText(transcript);
     };
     recognition.onerror = () => { setIsRecording(false); setRecordingText(""); };
-    recognition.onend = () => { /* don't auto-stop, user controls it */ };
-
+    recognition.onend = () => {};
     recognitionRef.current = recognition;
     recognition.start();
     setIsRecording(true);
     setRecordingText("");
   };
 
-  const stopAndSendRecording = () => {
+  const stopRecording = () => {
+    if (recognitionRef.current) recognitionRef.current.stop();
+    setIsRecording(false);
+    setRecordingText("");
+  };
+
+  const sendRecording = () => {
     if (recognitionRef.current) recognitionRef.current.stop();
     setIsRecording(false);
     if (recordingText.trim()) {
@@ -157,53 +175,72 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
     setRecordingText("");
   };
 
-  // Image upload
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Image handling
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    
     const reader = new FileReader();
     reader.onload = () => {
       const base64 = reader.result as string;
-      const text = input.trim() || "ما رأيك بهذه الصورة؟";
-      sendMessage(text, undefined, false, base64);
+      setImagePreview(base64);
+      setImageBase64Data(base64);
     };
     reader.readAsDataURL(file);
     e.target.value = "";
+    setShowAttachMenu(false);
   };
 
-  const sendMessage = useCallback(async (text?: string, regenerateIndex?: number, forceSearch?: boolean, imageBase64?: string) => {
+  const removeImagePreview = () => {
+    setImagePreview(null);
+    setImageBase64Data(null);
+  };
+
+  const sendMessage = useCallback(async (text?: string, regenerateIndex?: number, forceSearch?: boolean) => {
     const userText = text || input.trim();
-    if (!userText && regenerateIndex === undefined) return;
+    if (!userText && regenerateIndex === undefined && !imageBase64) return;
 
     let updatedMessages: Message[];
+    const currentImagePreview = imagePreview;
+    const currentImageBase64 = imageBase64;
 
     if (regenerateIndex !== undefined) {
       updatedMessages = messages.slice(0, regenerateIndex);
     } else {
-      const userMsg: Message = { id: Date.now().toString(), role: "user", content: userText, hasImage: !!imageBase64 };
+      const userMsg: Message = {
+        id: Date.now().toString(),
+        role: "user",
+        content: userText || "ما رأيك بهذه الصورة؟",
+        imagePreview: currentImagePreview || undefined,
+      };
       updatedMessages = [...messages, userMsg];
       setInput("");
+      setImagePreview(null);
+      setImageBase64Data(null);
       if (textareaRef.current) textareaRef.current.style.height = "auto";
     }
 
     setMessages(updatedMessages);
     setIsStreaming(true);
+    setStoppedResponse(false);
 
-    // Check if admin wants to save a note
-    if (isAdmin && adminPassword) {
-      const savePatterns = [/احفظ|سجل|خلي ببالك|تذكر|حفظ في عقلك/];
+    // Admin note saving
+    if (isAdmin && adminPassword && userText) {
+      const savePatterns = [/احفظ|سجل|خلي ببالك|تذكر|حفظ في عقلك|حط بعقلك|خزن/];
       if (savePatterns.some(p => p.test(userText))) {
-        const noteContent = userText.replace(/احفظ|سجل|خلي ببالك|تذكر|حفظ في عقلك/g, "").trim();
-        if (noteContent.length > 5) {
-          saveAdminNote(adminPassword, noteContent);
+        const noteContent = userText.replace(/احفظ|سجل|خلي ببالك|تذكر|حفظ في عقلك|حط بعقلك|خزن/g, "").trim();
+        if (noteContent.length > 3) {
+          try {
+            await saveAdminNote(adminPassword, noteContent);
+          } catch (e) {
+            console.error("Failed to save admin note:", e);
+          }
         }
       }
     }
 
     const assistantId = (Date.now() + 1).toString();
 
-    // Check if search is needed
+    // Search
     const shouldSearch = forceSearch || searchMode || needsWebSearch(userText);
     let searchResults: SearchResult[] = [];
 
@@ -215,7 +252,6 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
       setSearchMode(false);
     }
 
-    // Build search context
     let searchContext = "";
     if (searchResults.length > 0) {
       searchContext = "\n\nنتائج البحث من الإنترنت (استخدمها للإجابة بدقة مع ذكر المصادر):\n" +
@@ -229,11 +265,11 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
       ...updatedMessages.map(m => ({ role: m.role as "user" | "assistant", content: m.content })),
     ];
 
-    // If image is attached, add it to the last user message
-    if (imageBase64 && aiMessages.length > 0) {
+    // Image context
+    if (currentImageBase64 && aiMessages.length > 0) {
       const lastMsg = aiMessages[aiMessages.length - 1];
       if (lastMsg.role === "user") {
-        lastMsg.content = `[المستخدم أرسل صورة] ${lastMsg.content}\n(وصف: صورة مرفقة من المستخدم يريد رأيك فيها أو تحليلها)`;
+        lastMsg.content = `[المستخدم أرسل صورة مرفقة] ${lastMsg.content}\n(الصورة مرفقة وتحتاج تحليلها أو ردة فعل عليها)`;
       }
     }
 
@@ -264,7 +300,7 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
       },
       abortRef.current.signal
     );
-  }, [input, messages, profile, tasks, mode, searchMode, isAdmin, adminPassword, adminDisplayName]);
+  }, [input, messages, profile, tasks, mode, searchMode, isAdmin, adminPassword, adminDisplayName, imagePreview, imageBase64]);
 
   const handleRegenerate = (index: number) => sendMessage(undefined, index);
 
@@ -282,6 +318,7 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
   };
 
   const displayName = isAdmin ? (adminDisplayName || "سيدي") : (profile.name || "");
+  const isDarkMode = mode === "ryo" ? !ryoLight : isDark;
 
   return (
     <div className="flex flex-col h-[100dvh] w-full transition-colors duration-500 bg-background">
@@ -293,38 +330,28 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
             Ro
           </span>
         </div>
-
         <div className="flex items-center gap-0.5">
-          {/* Mode switcher */}
-          <div className="flex bg-secondary rounded-xl p-0.5 gap-0.5">
-            <button
-              onClick={() => switchMode("lite")}
-              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all ${
-                mode === "lite" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              <Zap className="w-3 h-3" /> Lite
-            </button>
-            <button
-              onClick={() => switchMode("ryo")}
-              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all ${
-                mode === "ryo" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              <Sparkles className="w-3 h-3" /> Ryo
-            </button>
-          </div>
-
           {messages.length > 0 && (
             <button onClick={clearChat} className="p-1.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-secondary transition-all" title="مسح المحادثة">
               <Trash2 className="w-3.5 h-3.5" />
             </button>
           )}
           <button onClick={toggleDark} className="p-1.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-secondary transition-all">
-            {(mode === "ryo" ? !ryoLight : isDark) ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
+            {isDarkMode ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
           </button>
           <button onClick={() => setShowTasks(!showTasks)} className="p-1.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-secondary transition-all">
             <ListTodo className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => setShowGlobePanel(!showGlobePanel)}
+            className="p-1.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-secondary transition-all relative"
+          >
+            <Globe className="w-3.5 h-3.5" />
+            {notificationCount > 0 && (
+              <span className="absolute -top-0.5 -left-0.5 w-3.5 h-3.5 rounded-full bg-destructive text-[8px] text-destructive-foreground flex items-center justify-center font-bold">
+                {notificationCount}
+              </span>
+            )}
           </button>
           <button onClick={() => setShowSettings(true)} className="p-1.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-secondary transition-all">
             <Settings className="w-3.5 h-3.5" />
@@ -335,14 +362,26 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
       {/* Tasks slide-down */}
       <AnimatePresence>
         {showTasks && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            className="border-b overflow-hidden bg-card"
-          >
-            <TasksPanel tasks={tasks} onUpdate={setTasks} onClose={() => setShowTasks(false)} />
+          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="border-b overflow-hidden bg-card">
+            <TasksPanel tasks={tasks} onUpdate={(t) => { setTasks(t); saveTasks(t); }} onClose={() => setShowTasks(false)} />
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Globe Panel */}
+      <AnimatePresence>
+        {showGlobePanel && (
+          <NewsNotificationsPanel
+            profile={profile}
+            tasks={tasks}
+            onClose={() => setShowGlobePanel(false)}
+            onAskRo={(question) => {
+              setShowGlobePanel(false);
+              setInput(question);
+              setTimeout(() => sendMessage(question), 100);
+            }}
+            onNotificationCountChange={setNotificationCount}
+          />
         )}
       </AnimatePresence>
 
@@ -350,29 +389,23 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
       <main className="flex-1 overflow-y-auto px-3 py-3 md:px-6" dir="rtl">
         <div className="max-w-3xl mx-auto">
           {messages.length === 0 && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="h-full flex items-center justify-center min-h-[60vh]"
-            >
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="h-full flex items-center justify-center min-h-[60vh]">
               <div className="text-center px-4">
                 <img src={roLogo} alt="Ro" className="w-16 h-16 rounded-2xl mx-auto mb-4 shadow-lg" />
                 <h2 className="text-3xl md:text-4xl font-bold mb-2 tracking-tight">
-                  {displayName ? `أهلاً ${displayName}` : "أهلاً"} 
+                  {displayName ? `أهلاً ${displayName}` : "أهلاً"}
                 </h2>
                 {mode === "ryo" ? (
-                  <p className="text-base font-semibold mt-2">
-                    <span className="bg-clip-text text-transparent" style={{ backgroundImage: "var(--ro-gradient)" }}>
-                      Ro
-                    </span>
-                    {" "}ولكن أفكر بعمق 🧠😎
+                  <p className="text-base mt-2">
+                    <span className="font-bold bg-clip-text text-transparent" style={{ backgroundImage: "var(--ro-gradient)" }}>Ro</span>
+                    {" "}
+                    <span className="text-muted-foreground">ولكن أفكر بعمق</span>
+                    {" "}🧠😎
                   </p>
                 ) : (
                   <p className="text-lg font-medium text-muted-foreground">
                     أنا{" "}
-                    <span className="bg-clip-text text-transparent" style={{ backgroundImage: "var(--ro-gradient)" }}>
-                      Ro
-                    </span>
+                    <span className="bg-clip-text text-transparent" style={{ backgroundImage: "var(--ro-gradient)" }}>Ro</span>
                     {" "}صديقك الذكي ✨
                   </p>
                 )}
@@ -390,16 +423,39 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
               searchResults={msg.searchResults}
               isSearching={msg.isSearching}
               mode={mode}
-              hasImage={msg.hasImage}
+              imagePreview={msg.imagePreview}
             />
           ))}
+          {stoppedResponse && (
+            <p className="text-[11px] text-muted-foreground text-center mt-1 mb-2">⏹ تم إيقاف الرد</p>
+          )}
           <div ref={chatEndRef} />
         </div>
       </main>
 
-      {/* Input */}
+      {/* Input area */}
       <div className="px-3 pb-3 pt-1.5" dir="rtl">
         <div className="max-w-3xl mx-auto">
+          {/* Image preview */}
+          <AnimatePresence>
+            {imagePreview && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 10 }}
+                className="mb-2 relative inline-block"
+              >
+                <img src={imagePreview} alt="preview" className="w-20 h-20 object-cover rounded-xl border" />
+                <button
+                  onClick={removeImagePreview}
+                  className="absolute -top-1.5 -left-1.5 w-5 h-5 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           <AnimatePresence mode="wait">
             {isRecording ? (
               <motion.div
@@ -407,21 +463,31 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.95 }}
-                className="flex items-center gap-2 bg-secondary rounded-2xl border border-destructive/30 px-3 py-3"
+                className="flex items-center gap-3 bg-secondary rounded-2xl border px-3 py-3"
               >
-                {/* Recording indicator */}
-                <div className="flex items-center gap-2 flex-1">
-                  <div className="w-3 h-3 rounded-full bg-destructive animate-pulse" />
-                  <span className="text-sm text-foreground flex-1 truncate" dir="rtl">
-                    {recordingText || "...تكلم الآن"}
-                  </span>
-                </div>
                 {/* Send recording */}
-                <button
-                  onClick={stopAndSendRecording}
-                  className="ro-send-btn p-2.5 rounded-xl transition-all flex-shrink-0"
-                >
-                  <Send className="w-4 h-4" />
+                <button onClick={sendRecording} className="ro-send-btn-circle flex-shrink-0">
+                  <ArrowUp className="w-4 h-4" />
+                </button>
+                {/* Waveform */}
+                <div className="flex-1 flex items-center gap-0.5 justify-center">
+                  {Array.from({ length: 24 }).map((_, i) => (
+                    <div
+                      key={i}
+                      className="w-[3px] rounded-full bg-foreground/40"
+                      style={{
+                        height: `${8 + Math.random() * 16}px`,
+                        animation: `waveform 0.8s ease-in-out ${i * 0.05}s infinite alternate`,
+                      }}
+                    />
+                  ))}
+                </div>
+                <span className="text-xs text-muted-foreground truncate max-w-[100px]">
+                  {recordingText || "تكلم الآن..."}
+                </span>
+                {/* Cancel */}
+                <button onClick={stopRecording} className="p-2 rounded-full text-muted-foreground hover:text-foreground hover:bg-background transition-all flex-shrink-0">
+                  <X className="w-4 h-4" />
                 </button>
               </motion.div>
             ) : (
@@ -430,70 +496,145 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.95 }}
-                className="flex items-end gap-1.5 bg-secondary rounded-2xl border px-2.5 py-2 transition-all focus-within:border-primary"
+                className="bg-secondary rounded-2xl border transition-all focus-within:border-primary"
               >
-                <textarea
-                  ref={textareaRef}
-                  value={input}
-                  onChange={handleTextareaChange}
-                  onKeyDown={handleKeyDown}
-                  placeholder="اكتب رسالتك..."
-                  rows={1}
-                  disabled={isStreaming}
-                  className="flex-1 bg-transparent outline-none text-sm resize-none text-foreground placeholder:text-muted-foreground leading-relaxed max-h-[120px]"
-                />
-                
-                {/* Image upload */}
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={handleImageUpload}
-                />
+                {/* Textarea */}
+                <div className="px-3 pt-2.5 pb-1">
+                  <textarea
+                    ref={textareaRef}
+                    value={input}
+                    onChange={handleTextareaChange}
+                    onKeyDown={handleKeyDown}
+                    placeholder="اسأل صديقك الذكي"
+                    rows={1}
+                    disabled={isStreaming}
+                    className="w-full bg-transparent outline-none text-sm resize-none text-foreground placeholder:text-muted-foreground/60 leading-relaxed max-h-[120px] placeholder:text-[13px]"
+                  />
+                </div>
+                {/* Button row */}
+                <div className="flex items-center justify-between px-2 pb-2">
+                  <div className="flex items-center gap-1">
+                    {/* Send / Stop */}
+                    {isStreaming ? (
+                      <button onClick={stopStreaming} className="ro-send-btn-circle flex-shrink-0" title="إيقاف">
+                        <Square className="w-3.5 h-3.5" fill="currentColor" />
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => sendMessage()}
+                        disabled={!input.trim() && !imagePreview}
+                        className="ro-send-btn-circle disabled:opacity-30 flex-shrink-0"
+                        title="إرسال"
+                      >
+                        <ArrowUp className="w-4 h-4" />
+                      </button>
+                    )}
+                    {/* Mic */}
+                    <button
+                      onClick={startRecording}
+                      disabled={isStreaming}
+                      className="p-2 rounded-full text-muted-foreground hover:text-foreground hover:bg-background transition-all flex-shrink-0"
+                      title="تسجيل صوتي"
+                    >
+                      <Mic className="w-[18px] h-[18px]" />
+                    </button>
+                    {/* Model selector chip */}
+                    <button
+                      onClick={() => setShowModelSelector(!showModelSelector)}
+                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-full text-[12px] font-medium bg-background border hover:bg-muted transition-all"
+                    >
+                      {mode === "lite" ? "Lite" : "Ryo Ai"}
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {/* Search */}
+                    <button
+                      onClick={() => {
+                        if (searchMode && input.trim()) {
+                          sendMessage(input.trim(), undefined, true);
+                        } else {
+                          setSearchMode(!searchMode);
+                        }
+                      }}
+                      className={`p-2 rounded-full transition-all flex-shrink-0 ${
+                        searchMode ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground hover:bg-background"
+                      }`}
+                      title="بحث"
+                    >
+                      <Search className="w-[18px] h-[18px]" />
+                    </button>
+                    {/* Plus / Attach */}
+                    <button
+                      onClick={() => setShowAttachMenu(!showAttachMenu)}
+                      className="p-2 rounded-full text-muted-foreground hover:text-foreground hover:bg-background transition-all flex-shrink-0"
+                      title="إرفاق"
+                    >
+                      <Plus className="w-[18px] h-[18px]" />
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Model selector popup */}
+          <AnimatePresence>
+            {showModelSelector && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 10 }}
+                className="mt-2 bg-card rounded-2xl border shadow-xl p-4 space-y-1"
+              >
+                <p className="text-xs font-bold text-muted-foreground mb-2 bg-clip-text text-transparent" style={{ backgroundImage: "var(--ro-gradient)" }}>RO Ai</p>
+                <button
+                  onClick={() => switchMode("lite")}
+                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl transition-all ${mode === "lite" ? "bg-secondary" : "hover:bg-secondary/50"}`}
+                >
+                  <div className="text-right">
+                    <p className="text-sm font-semibold">Lite</p>
+                    <p className="text-[11px] text-muted-foreground">يجيب بسرعة</p>
+                  </div>
+                  {mode === "lite" && <Check className="w-4 h-4 text-blue-500" />}
+                </button>
+                <button
+                  onClick={() => switchMode("ryo")}
+                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl transition-all ${mode === "ryo" ? "bg-secondary" : "hover:bg-secondary/50"}`}
+                >
+                  <div className="text-right">
+                    <p className="text-sm font-semibold">Ryo Ai</p>
+                    <p className="text-[11px] text-muted-foreground">يفكر بعمق</p>
+                  </div>
+                  {mode === "ryo" && <Check className="w-4 h-4 text-blue-500" />}
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Attachment menu popup */}
+          <AnimatePresence>
+            {showAttachMenu && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 10 }}
+                className="mt-2 bg-card rounded-2xl border shadow-xl p-3 space-y-1"
+              >
+                <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleImageSelect} />
+                <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageSelect} />
+                <button
+                  onClick={() => cameraInputRef.current?.click()}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-secondary transition-all text-right"
+                >
+                  <Camera className="w-5 h-5 text-muted-foreground" />
+                  <span className="text-sm">الكاميرا</span>
+                </button>
                 <button
                   onClick={() => fileInputRef.current?.click()}
-                  disabled={isStreaming}
-                  className="p-1.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-background transition-all flex-shrink-0"
-                  title="إرسال صورة"
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-secondary transition-all text-right"
                 >
-                  <ImageIcon className="w-4 h-4" />
-                </button>
-
-                {/* Search */}
-                <button
-                  onClick={() => {
-                    if (searchMode && input.trim()) {
-                      sendMessage(input.trim(), undefined, true);
-                    } else {
-                      setSearchMode(!searchMode);
-                    }
-                  }}
-                  className={`p-1.5 rounded-xl transition-all flex-shrink-0 ${
-                    searchMode ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground hover:bg-background"
-                  }`}
-                  title="بحث من الويب"
-                >
-                  <Search className="w-4 h-4" />
-                </button>
-
-                {/* Mic */}
-                <button
-                  onClick={startRecording}
-                  disabled={isStreaming}
-                  className="p-1.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-background transition-all flex-shrink-0"
-                  title="تسجيل صوتي"
-                >
-                  <Mic className="w-4 h-4" />
-                </button>
-
-                {/* Send */}
-                <button
-                  onClick={() => sendMessage()}
-                  disabled={!input.trim() || isStreaming}
-                  className="ro-send-btn p-2 rounded-xl disabled:opacity-30 transition-all flex-shrink-0 active:scale-90"
-                >
-                  <Send className="w-4 h-4" />
+                  <ImageIcon className="w-5 h-5 text-muted-foreground" />
+                  <span className="text-sm">معرض الصور</span>
                 </button>
               </motion.div>
             )}
@@ -504,6 +645,11 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
       {/* Settings modal */}
       {showSettings && (
         <SettingsPanel profile={profile} onUpdate={onProfileUpdate} onClose={() => setShowSettings(false)} />
+      )}
+
+      {/* Click outside to close popups */}
+      {(showModelSelector || showAttachMenu) && (
+        <div className="fixed inset-0 z-[-1]" onClick={() => { setShowModelSelector(false); setShowAttachMenu(false); }} />
       )}
     </div>
   );
