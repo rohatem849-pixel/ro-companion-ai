@@ -116,7 +116,7 @@ serve(async (req) => {
         messages: enrichedMessages,
         stream: true,
         [completionTokenKey]: completionTokenValue,
-        temperature,
+        ...(temperature === undefined ? {} : { temperature }),
       }),
     });
 
