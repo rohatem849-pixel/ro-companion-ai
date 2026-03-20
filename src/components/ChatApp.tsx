@@ -59,7 +59,9 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [imageBase64, setImageBase64Data] = useState<string | null>(null);
   const [stoppedResponse, setStoppedResponse] = useState(false);
-  const [recordingText, setRecordingText] = useState("");
+  const [recordingText, setRecordingTextState] = useState("");
+  const recordingTextRef = useRef("");
+  const setRecordingText = (val: string) => { recordingTextRef.current = val; setRecordingTextState(val); };
   const [notificationCount, setNotificationCount] = useState(0);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
