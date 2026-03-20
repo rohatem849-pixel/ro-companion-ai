@@ -115,7 +115,7 @@ serve(async (req) => {
         model,
         messages: enrichedMessages,
         stream: true,
-        max_tokens,
+        [completionTokenKey]: completionTokenValue,
         temperature,
       }),
     });
