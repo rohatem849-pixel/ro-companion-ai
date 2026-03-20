@@ -92,9 +92,17 @@ serve(async (req) => {
       };
     }
 
-    const model = mode === "lite" ? "google/gemini-2.5-flash-lite" : "google/gemini-2.5-flash";
-    const max_tokens = mode === "lite" ? 600 : 3000;
-    const temperature = mode === "lite" ? 0.8 : 0.5;
+    const hasImageInput = normalizedMessages.some((message: any) =>
+      Array.isArray(message.content) && message.content.some((part: any) => part?.type === "image_url")
+    );
+
+    const model = hasImageInput
+      ? "openai/gpt-5-mini"
+      : mode === "lite"
+        ? "google/gemini-2.5-flash-lite"
+        : "google/gemini-2.5-flash";
+    const max_tokens = hasImageInput ? 1200 : mode === "lite" ? 600 : 3000;
+    const temperature = hasImageInput ? 0.6 : mode === "lite" ? 0.8 : 0.5;
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
