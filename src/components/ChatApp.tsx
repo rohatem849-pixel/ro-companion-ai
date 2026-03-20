@@ -265,16 +265,20 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
 
     const aiMessages: AIChatMessage[] = [
       { role: "system", content: buildSystemPrompt({ ...profile, name: promptDisplayName }, tasks, mode, isAdmin) + searchContext },
-      ...updatedMessages.map(m => ({ role: m.role as "user" | "assistant", content: m.content })),
+      ...updatedMessages.map((m, index) => {
+        const isLastUserMessage = index === updatedMessages.length - 1 && m.role === "user";
+        if (isLastUserMessage && currentImageBase64) {
+          return {
+            role: "user" as const,
+            content: [
+              { type: "text" as const, text: m.content || "حلل هذه الصورة ورد عليها بشكل طبيعي." },
+              { type: "image_url" as const, image_url: { url: currentImageBase64 } },
+            ],
+          };
+        }
+        return { role: m.role as "user" | "assistant", content: m.content };
+      }),
     ];
-
-    // Image context
-    if (currentImageBase64 && aiMessages.length > 0) {
-      const lastMsg = aiMessages[aiMessages.length - 1];
-      if (lastMsg.role === "user") {
-        lastMsg.content = `[المستخدم أرسل صورة مرفقة] ${lastMsg.content}\n(الصورة مرفقة وتحتاج تحليلها أو ردة فعل عليها)`;
-      }
-    }
 
     setMessages(prev => {
       const existing = prev.find(m => m.id === assistantId);

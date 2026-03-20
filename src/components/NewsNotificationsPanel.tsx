@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { motion } from "framer-motion";
 import { X, Newspaper, Bell, ExternalLink, MessageCircle } from "lucide-react";
 import { UserProfile, Task } from "@/lib/userProfile";
@@ -29,13 +29,33 @@ interface Notification {
   read: boolean;
 }
 
+const DEFAULT_TASK_HOURS = [13, 15, 16, 20];
+const DEFAULT_HABIT_HOURS = [15, 18, 21];
+const GOOD_HABIT_LABEL = "3:20 مساءً · 6:00 مساءً · 9:00 مساءً";
+const TASK_LABEL = "1:00 ظهرًا · 3:00 عصرًا · 4:00 عصرًا · 8:00 مساءً";
+
+function normalizeCountry(country: string) {
+  const trimmed = country.trim().toLowerCase();
+  if (!trimmed) return "saudi";
+  if (["saudi", "saudi arabia", "ksa", "السعودية", "المملكة العربية السعودية"].includes(trimmed)) return "saudi";
+  return trimmed;
+}
+
+function isDueNow(currentHour: number, allowedHours: number[]) {
+  return allowedHours.includes(currentHour);
+}
+
 export default function NewsNotificationsPanel({ profile, tasks, onClose, onAskRo, onNotificationCountChange }: Props) {
   const [tab, setTab] = useState<"news" | "notifications">("news");
   const [news, setNews] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [notifications, setNotifications] = useState<Notification[]>([]);
 
-  // Fetch news
+  const timezone = useMemo(() => {
+    const country = normalizeCountry(profile.country || "");
+    return country === "saudi" ? "Asia/Riyadh" : Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Riyadh";
+  }, [profile.country]);
+
   useEffect(() => {
     const fetchNews = async () => {
       setLoading(true);
@@ -57,49 +77,63 @@ export default function NewsNotificationsPanel({ profile, tasks, onClose, onAskR
     fetchNews();
   }, [profile.country, profile.hobbies]);
 
-  // Generate notifications
   useEffect(() => {
-    const notifs: Notification[] = [];
-    const now = new Date();
-    const hour = now.getHours();
+    const buildNotifications = () => {
+      const notifs: Notification[] = [];
+      const now = new Date();
+      const hour = Number(
+        new Intl.DateTimeFormat("en-US", {
+          hour: "numeric",
+          hour12: false,
+          timeZone: timezone,
+        }).format(now)
+      );
 
-    const pendingTasks = tasks.filter(t => !t.done);
-    if (pendingTasks.length > 0) {
-      notifs.push({
-        id: "tasks-reminder",
-        message: `عندك ${pendingTasks.length} مهمة لم تنجزها بعد! 💪 يلا نخلصهم`,
-        type: "task",
-        time: "الآن",
-        read: false,
-      });
-    }
+      const pendingTasks = tasks.filter((t) => !t.done);
+      const habitHours = DEFAULT_HABIT_HOURS;
+      const taskHours = DEFAULT_TASK_HOURS;
 
-    if (profile.goodHabit) {
-      notifs.push({
-        id: "good-habit",
-        message: `كيف حالك مع "${profile.goodHabit}"؟ 🌟 أنت قادر!`,
-        type: "habit_good",
-        time: hour >= 15 ? "هذا المساء" : "اليوم",
-        read: false,
-      });
-    }
+      if (pendingTasks.length > 0 && isDueNow(hour, taskHours)) {
+        notifs.push({
+          id: `tasks-${hour}`,
+          message: `عندك ${pendingTasks.length} مهمة لسا بانتظارك ✨ خلّينا ننهي واحدة الآن خطوة خطوة.`,
+          type: "task",
+          time: TASK_LABEL,
+          read: false,
+        });
+      }
 
-    if (profile.badHabit) {
-      notifs.push({
-        id: "bad-habit",
-        message: `تذكر هدفك بترك "${profile.badHabit}" 💪 كل يوم بدونها هو إنجاز!`,
-        type: "habit_bad",
-        time: hour >= 18 ? "مساء الخير" : "تذكير",
-        read: false,
-      });
-    }
+      if (profile.goodHabit && isDueNow(hour, habitHours)) {
+        notifs.push({
+          id: `good-habit-${hour}`,
+          message: `كيف ماشي مع عادة "${profile.goodHabit}"؟ 🌱 حتى خطوة صغيرة اليوم تُحسب لك.`,
+          type: "habit_good",
+          time: GOOD_HABIT_LABEL,
+          read: false,
+        });
+      }
 
-    setNotifications(notifs);
-    onNotificationCountChange(notifs.filter(n => !n.read).length);
-  }, [tasks, profile.goodHabit, profile.badHabit]);
+      if (profile.badHabit && isDueNow(hour, habitHours)) {
+        notifs.push({
+          id: `bad-habit-${hour}`,
+          message: `تذكير لطيف بخصوص "${profile.badHabit}" 🤍 يوم جديد بعيد عنها يعني تقدّم حقيقي.`,
+          type: "habit_bad",
+          time: GOOD_HABIT_LABEL,
+          read: false,
+        });
+      }
+
+      setNotifications(notifs);
+      onNotificationCountChange(notifs.filter((n) => !n.read).length);
+    };
+
+    buildNotifications();
+    const interval = window.setInterval(buildNotifications, 60_000);
+    return () => window.clearInterval(interval);
+  }, [tasks, profile.goodHabit, profile.badHabit, timezone, onNotificationCountChange]);
 
   const markAllRead = () => {
-    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
     onNotificationCountChange(0);
   };
 
@@ -111,7 +145,6 @@ export default function NewsNotificationsPanel({ profile, tasks, onClose, onAskR
       className="border-b overflow-hidden bg-card"
     >
       <div className="p-3 max-h-[60vh] overflow-y-auto" dir="rtl">
-        {/* Header */}
         <div className="flex items-center justify-between mb-3">
           <div className="flex gap-2">
             <button
@@ -125,9 +158,9 @@ export default function NewsNotificationsPanel({ profile, tasks, onClose, onAskR
               className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-medium transition-all ${tab === "notifications" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary"}`}
             >
               <Bell className="w-3 h-3" /> إشعارات
-              {notifications.filter(n => !n.read).length > 0 && (
+              {notifications.filter((n) => !n.read).length > 0 && (
                 <span className="w-4 h-4 rounded-full bg-destructive text-destructive-foreground text-[9px] flex items-center justify-center">
-                  {notifications.filter(n => !n.read).length}
+                  {notifications.filter((n) => !n.read).length}
                 </span>
               )}
             </button>
@@ -137,7 +170,6 @@ export default function NewsNotificationsPanel({ profile, tasks, onClose, onAskR
           </button>
         </div>
 
-        {/* News tab */}
         {tab === "news" && (
           <div className="space-y-2">
             {loading ? (
@@ -177,13 +209,12 @@ export default function NewsNotificationsPanel({ profile, tasks, onClose, onAskR
           </div>
         )}
 
-        {/* Notifications tab */}
         {tab === "notifications" && (
           <div className="space-y-2">
             {notifications.length === 0 ? (
-              <p className="text-xs text-muted-foreground text-center py-4">لا إشعارات ✨</p>
+              <p className="text-xs text-muted-foreground text-center py-4">لا إشعارات حالياً في هذا الوقت ✨</p>
             ) : (
-              notifications.map(notif => (
+              notifications.map((notif) => (
                 <div key={notif.id} className="flex items-start gap-2.5 p-3 rounded-xl border bg-background">
                   <img src={roLogo} alt="Ro" className="w-6 h-6 rounded-lg flex-shrink-0 mt-0.5" />
                   <div className="flex-1">

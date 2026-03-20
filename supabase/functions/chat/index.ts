@@ -66,23 +66,44 @@ serve(async (req) => {
       });
     }
 
+    const normalizedMessages = messages.map((message: any) => ({
+      role: message.role,
+      content: Array.isArray(message.content)
+        ? message.content
+            .filter((part: any) => part && (part.type === "text" || part.type === "image_url"))
+            .map((part: any) => part.type === "text"
+              ? { type: "text", text: String(part.text || "") }
+              : { type: "image_url", image_url: { url: String(part.image_url?.url || "") } }
+            )
+        : String(message.content || ""),
+    }));
+
     // Fetch admin notes and inject into system prompt
     const supabase = getSupabaseAdmin();
     const { data: notesData } = await supabase.from("admin_notes").select("note").order("created_at", { ascending: true });
     const adminNotes = notesData?.map((n: any) => n.note) || [];
 
     // Inject admin notes into system message if any exist
-    const enrichedMessages = [...messages];
-    if (adminNotes.length > 0 && enrichedMessages.length > 0 && enrichedMessages[0].role === "system") {
+    const enrichedMessages = [...normalizedMessages];
+    if (adminNotes.length > 0 && enrichedMessages.length > 0 && enrichedMessages[0].role === "system" && typeof enrichedMessages[0].content === "string") {
       enrichedMessages[0] = {
         ...enrichedMessages[0],
         content: enrichedMessages[0].content + "\n\n📌 تعليمات محفوظة من المدير التنفيذي (طبّقها دائماً مع الجميع عند الطلب):\n" + adminNotes.map((n: string, i: number) => `${i + 1}. ${n}`).join("\n"),
       };
     }
 
-    const model = mode === "lite" ? "google/gemini-2.5-flash-lite" : "google/gemini-2.5-flash";
-    const max_tokens = mode === "lite" ? 600 : 3000;
-    const temperature = mode === "lite" ? 0.8 : 0.5;
+    const hasImageInput = normalizedMessages.some((message: any) =>
+      Array.isArray(message.content) && message.content.some((part: any) => part?.type === "image_url")
+    );
+
+    const model = hasImageInput
+      ? "openai/gpt-5-mini"
+      : mode === "lite"
+        ? "google/gemini-2.5-flash-lite"
+        : "google/gemini-2.5-flash";
+    const completionTokenKey = hasImageInput ? "max_completion_tokens" : "max_tokens";
+    const completionTokenValue = hasImageInput ? 1200 : mode === "lite" ? 600 : 3000;
+    const temperature = hasImageInput ? undefined : mode === "lite" ? 0.8 : 0.5;
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -94,8 +115,8 @@ serve(async (req) => {
         model,
         messages: enrichedMessages,
         stream: true,
-        max_tokens,
-        temperature,
+        [completionTokenKey]: completionTokenValue,
+        ...(temperature === undefined ? {} : { temperature }),
       }),
     });
 
