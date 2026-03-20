@@ -101,7 +101,8 @@ serve(async (req) => {
       : mode === "lite"
         ? "google/gemini-2.5-flash-lite"
         : "google/gemini-2.5-flash";
-    const max_tokens = hasImageInput ? 1200 : mode === "lite" ? 600 : 3000;
+    const completionTokenKey = hasImageInput ? "max_completion_tokens" : "max_tokens";
+    const completionTokenValue = hasImageInput ? 1200 : mode === "lite" ? 600 : 3000;
     const temperature = hasImageInput ? 0.6 : mode === "lite" ? 0.8 : 0.5;
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
