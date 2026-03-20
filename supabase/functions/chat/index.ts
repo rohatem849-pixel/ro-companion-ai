@@ -66,6 +66,18 @@ serve(async (req) => {
       });
     }
 
+    const normalizedMessages = messages.map((message: any) => ({
+      role: message.role,
+      content: Array.isArray(message.content)
+        ? message.content
+            .filter((part: any) => part && (part.type === "text" || part.type === "image_url"))
+            .map((part: any) => part.type === "text"
+              ? { type: "text", text: String(part.text || "") }
+              : { type: "image_url", image_url: { url: String(part.image_url?.url || "") } }
+            )
+        : String(message.content || ""),
+    }));
+
     // Fetch admin notes and inject into system prompt
     const supabase = getSupabaseAdmin();
     const { data: notesData } = await supabase.from("admin_notes").select("note").order("created_at", { ascending: true });
