@@ -84,8 +84,8 @@ serve(async (req) => {
     const adminNotes = notesData?.map((n: any) => n.note) || [];
 
     // Inject admin notes into system message if any exist
-    const enrichedMessages = [...messages];
-    if (adminNotes.length > 0 && enrichedMessages.length > 0 && enrichedMessages[0].role === "system") {
+    const enrichedMessages = [...normalizedMessages];
+    if (adminNotes.length > 0 && enrichedMessages.length > 0 && enrichedMessages[0].role === "system" && typeof enrichedMessages[0].content === "string") {
       enrichedMessages[0] = {
         ...enrichedMessages[0],
         content: enrichedMessages[0].content + "\n\n📌 تعليمات محفوظة من المدير التنفيذي (طبّقها دائماً مع الجميع عند الطلب):\n" + adminNotes.map((n: string, i: number) => `${i + 1}. ${n}`).join("\n"),
