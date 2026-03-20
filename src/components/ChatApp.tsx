@@ -171,8 +171,9 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
   const sendRecording = () => {
     if (recognitionRef.current) recognitionRef.current.stop();
     setIsRecording(false);
-    if (recordingText.trim()) {
-      sendMessage(recordingText.trim());
+    const finalText = recordingTextRef.current.trim();
+    if (finalText) {
+      setTimeout(() => sendMessage(finalText), 50);
     }
     setRecordingText("");
   };
