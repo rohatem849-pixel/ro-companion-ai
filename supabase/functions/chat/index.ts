@@ -7,10 +7,7 @@ const corsHeaders = {
 };
 
 function getSupabaseAdmin() {
-  return createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-  );
+  return createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 }
 
 serve(async (req) => {
@@ -21,8 +18,7 @@ serve(async (req) => {
 
     // Admin password check
     if ("checkAdmin" in body) {
-      const ADMIN_PASSWORD = Deno.env.get("ADMIN_PASSWORD");
-      const isAdmin = body.checkAdmin === ADMIN_PASSWORD;
+      const isAdmin = body.checkAdmin === Deno.env.get("ADMIN_PASSWORD");
       return new Response(JSON.stringify({ isAdmin }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -30,11 +26,9 @@ serve(async (req) => {
 
     // Admin save note
     if ("saveNote" in body) {
-      const ADMIN_PASSWORD = Deno.env.get("ADMIN_PASSWORD");
-      if (body.adminPassword !== ADMIN_PASSWORD) {
+      if (body.adminPassword !== Deno.env.get("ADMIN_PASSWORD")) {
         return new Response(JSON.stringify({ error: "unauthorized" }), {
-          status: 403,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
       const supabase = getSupabaseAdmin();
@@ -45,24 +39,36 @@ serve(async (req) => {
       });
     }
 
-    // Get admin notes (for system prompt enrichment)
+    // Admin delete note
+    if ("deleteNote" in body) {
+      if (body.adminPassword !== Deno.env.get("ADMIN_PASSWORD")) {
+        return new Response(JSON.stringify({ error: "unauthorized" }), {
+          status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const supabase = getSupabaseAdmin();
+      await supabase.from("admin_notes").delete().eq("id", body.deleteNote);
+      return new Response(JSON.stringify({ success: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Get admin notes
     if ("getAdminNotes" in body) {
       const supabase = getSupabaseAdmin();
-      const { data } = await supabase.from("admin_notes").select("note").order("created_at", { ascending: true });
-      return new Response(JSON.stringify({ notes: data?.map((n: any) => n.note) || [] }), {
+      const { data } = await supabase.from("admin_notes").select("id, note").order("created_at", { ascending: true });
+      return new Response(JSON.stringify({ notes: data || [] }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
     const { messages, mode } = body;
-
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
 
     if (!messages || !Array.isArray(messages)) {
       return new Response(JSON.stringify({ error: "messages مطلوبة" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
@@ -83,12 +89,11 @@ serve(async (req) => {
     const { data: notesData } = await supabase.from("admin_notes").select("note").order("created_at", { ascending: true });
     const adminNotes = notesData?.map((n: any) => n.note) || [];
 
-    // Inject admin notes into system message if any exist
     const enrichedMessages = [...normalizedMessages];
     if (adminNotes.length > 0 && enrichedMessages.length > 0 && enrichedMessages[0].role === "system" && typeof enrichedMessages[0].content === "string") {
       enrichedMessages[0] = {
         ...enrichedMessages[0],
-        content: enrichedMessages[0].content + "\n\n📌 تعليمات محفوظة من المدير التنفيذي (طبّقها دائماً مع الجميع عند الطلب):\n" + adminNotes.map((n: string, i: number) => `${i + 1}. ${n}`).join("\n"),
+        content: enrichedMessages[0].content + "\n\n📌 تعليمات محفوظة من المدير التنفيذي (طبّقها دائماً):\n" + adminNotes.map((n: string, i: number) => `${i + 1}. ${n}`).join("\n"),
       };
     }
 
@@ -101,9 +106,9 @@ serve(async (req) => {
       : mode === "lite"
         ? "google/gemini-2.5-flash-lite"
         : "google/gemini-2.5-flash";
-    const completionTokenKey = hasImageInput ? "max_completion_tokens" : "max_tokens";
-    const completionTokenValue = hasImageInput ? 1200 : mode === "lite" ? 600 : 3000;
-    const temperature = hasImageInput ? undefined : mode === "lite" ? 0.8 : 0.5;
+    
+    const maxTokens = hasImageInput ? 1200 : mode === "lite" ? 600 : 3000;
+    const temperature = hasImageInput ? undefined : mode === "lite" ? 0.7 : 0.4;
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -115,23 +120,28 @@ serve(async (req) => {
         model,
         messages: enrichedMessages,
         stream: true,
-        [completionTokenKey]: completionTokenValue,
-        ...(temperature === undefined ? {} : { temperature }),
+        max_tokens: maxTokens,
+        ...(temperature !== undefined ? { temperature } : {}),
+        frequency_penalty: 0.8,
+        presence_penalty: 0.5,
       }),
     });
 
     if (!response.ok) {
       if (response.status === 429) {
         return new Response(JSON.stringify({ error: "الخادم مشغول حالياً، جرب بعد لحظات 🙏" }), {
-          status: 429,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      if (response.status === 402) {
+        return new Response(JSON.stringify({ error: "يرجى إعادة شحن الرصيد" }), {
+          status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
       const t = await response.text();
       console.error("AI gateway error:", response.status, t);
       return new Response(JSON.stringify({ error: "خطأ في الاتصال بالذكاء الاصطناعي" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
@@ -141,8 +151,7 @@ serve(async (req) => {
   } catch (e) {
     console.error("chat error:", e);
     return new Response(JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 });

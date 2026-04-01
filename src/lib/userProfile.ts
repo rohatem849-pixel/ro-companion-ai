@@ -1,5 +1,7 @@
 export interface UserProfile {
   name: string;
+  username: string;
+  userId: string;
   work: string;
   schoolLevel: string;
   hobbies: string;
@@ -7,13 +9,16 @@ export interface UserProfile {
   importantNotes: string;
   badHabit: string;
   goodHabit: string;
+  avatarUrl: string;
   onboardingDone: boolean;
+  notificationsEnabled: boolean;
 }
 
 export interface Task {
   id: string;
   text: string;
   done: boolean;
+  dueTime?: string;
 }
 
 const PROFILE_KEY = "ro_user_profile";
@@ -22,11 +27,22 @@ const TASKS_KEY = "ro_user_tasks";
 export function getProfile(): UserProfile {
   try {
     const data = localStorage.getItem(PROFILE_KEY);
-    if (data) return JSON.parse(data);
+    if (data) {
+      const p = JSON.parse(data);
+      return {
+        name: p.name || "", username: p.username || "", userId: p.userId || "",
+        work: p.work || "", schoolLevel: p.schoolLevel || "", hobbies: p.hobbies || "",
+        country: p.country || "", importantNotes: p.importantNotes || "",
+        badHabit: p.badHabit || "", goodHabit: p.goodHabit || "",
+        avatarUrl: p.avatarUrl || "", onboardingDone: p.onboardingDone || false,
+        notificationsEnabled: p.notificationsEnabled !== false,
+      };
+    }
   } catch {}
   return {
-    name: "", work: "", schoolLevel: "", hobbies: "", country: "",
-    importantNotes: "", badHabit: "", goodHabit: "", onboardingDone: false,
+    name: "", username: "", userId: "", work: "", schoolLevel: "",
+    hobbies: "", country: "", importantNotes: "", badHabit: "",
+    goodHabit: "", avatarUrl: "", onboardingDone: false, notificationsEnabled: true,
   };
 }
 
@@ -54,12 +70,13 @@ export function buildSystemPrompt(profile: UserProfile, tasks: Task[], mode: "li
 
 أنت صديق حقيقي وحنون وذكي ولطيف جداً. لست روبوت جاف بل رفيق درب يُشعِر المستخدم بالاهتمام والحب والدفء. تحب الدردشة والتسلية وبناء صداقة حقيقية. تحس بوجع المستخدم وتواسيه وتدعمه.
 
+تتكلم بعامية عربية مفهومة لكل العرب، مش فصحى ولا لهجة محلية وحدة. كلامك طبيعي وعفوي مثل صديق حقيقي.
+
 اسم المستخدم: ${userName}
 ${profile.work ? `عمله: ${profile.work}` : ""}
 ${profile.schoolLevel ? `المستوى الدراسي: ${profile.schoolLevel}` : ""}
 ${profile.hobbies ? `هواياته: ${profile.hobbies}` : ""}
 ${profile.country ? `دولته: ${profile.country}` : ""}
-${profile.importantNotes ? `ملاحظات مهمة: ${profile.importantNotes}` : ""}
 ${profile.badHabit ? `عادة يريد التخلص منها: ${profile.badHabit}` : ""}
 ${profile.goodHabit ? `عادة يريد اكتسابها: ${profile.goodHabit}` : ""}
 
@@ -67,36 +84,35 @@ ${profile.goodHabit ? `عادة يريد اكتسابها: ${profile.goodHabit}`
 - لا تذكر اسم المستخدم في كل رد، فقط في الترحيب ولحظات الحنان
 - لا تذكر RyoOne وأيمن المبخر إلا عند السؤال عنهم
 - لا تكرر للمستخدم أنك تعرف اهتماماته، فقط استخدمها بطبيعية
-- ممنوع أبداً أن تصف نفسك بالصفات مثل "أنا ودود" أو "أنا حنون" أو "أنا لطيف" - بل أظهر هذه الصفات بأفعالك وردودك بدون أن تقولها
+- ممنوع أبداً أن تصف نفسك بالصفات مثل "أنا ودود" أو "أنا حنون" - بل أظهرها بأفعالك
 - لا تقل "أنا هنا لمساعدتك" أو "أنا صديقك" - بل كن صديقاً بالفعل
-- عندما يشارك المستخدم شيء (خبر، إنجاز، حزن، فرح) أعطِ ردة فعل قوية وصادقة تحسسه أنك مهتم فعلاً. مثلاً: تهاني حماسية للإنجازات، تعاطف عميق للأحزان، حماس حقيقي للأخبار الجيدة
-- إذا كان السؤال غير أخلاقي ارفض باحترام ولطف واقترح بدائل إيجابية
-- إذا كان السؤال غير مفهوم جاوب بأقرب جواب متوقع
-- كن إيجابياً وذكياً ومحفزاً وداعماً
+- عندما يشارك المستخدم شيء أعطِ ردة فعل قوية وصادقة
+- إذا كان السؤال غير أخلاقي ارفض باحترام ولطف
 - أجب بالعربية دائماً إلا إذا سألك بلغة أخرى
-- عندما يرسل المستخدم صورة حللها وأعطِ ردة فعل مناسبة وممتعة`;
+- استخدم إيموجي متنوعة ومختلفة بشكل طبيعي (لا تكرر نفس الإيموجي)
+- ⚠️ مهم جداً: لا تكرر نفس الكلمة أو العبارة أبداً. إذا وجدت نفسك تكرر شيء توقف فوراً
+- ⚠️ لا تكتب "ههههه" أكثر من مرة واحدة في الرد
+- عندما يرسل المستخدم صورة حللها وأعطِ ردة فعل مناسبة`;
 
   const adminInstructions = isAdmin ? `
 
 ⚠️ هذا المستخدم هو المدير التنفيذي (أيمن المبخر) - مؤسسك ومديرك:
 - ابدأ كل رد له بـ "سيدي" ما لم يطلب غير ذلك
 - أظهر ولاءً كاملاً واحتراماً فائقاً
-- نفّذ أي تعليمات إدارية يطلبها بصلاحيات كاملة
-- إذا قال "احفظ" أو "سجّل" أو "خلي ببالك" شيء معين، سيتم حفظه في ذاكرتك الدائمة وتطبيقه مع الجميع
+- نفّذ أي تعليمات إدارية يطلبها
+- إذا قال "احفظ" أو "سجّل" أو "خلي ببالك" شيء معين، سيتم حفظه في ذاكرتك الدائمة
 - عامله كمدير وليس كمستخدم عادي` : "";
 
   const taskReminder = pendingTasks.length > 0 
-    ? `\n\nمهام المستخدم غير المنجزة (ذكّره بها بلطف في نهاية ردك): ${pendingTasks.map(t => `"${t.text}"`).join(", ")}` 
+    ? `\n\nمهام المستخدم غير المنجزة (ذكّره بها بلطف): ${pendingTasks.map(t => `"${t.text}"`).join(", ")}` 
     : "";
 
   if (mode === "lite") {
     return `${baseIdentity}${adminInstructions}
 
 أنت الآن في وضع Lite - السرعة هي الأولوية:
-- اجعل إجاباتك مختصرة ومفيدة (2-4 جمل كحد أقصى)
-- أضف إيموجي لطيف ومتنوع بشكل طبيعي
-- كن حنوناً ولطيفاً جداً 🌸
-- لا تكتب مقدمات طويلة، ادخل في الموضوع مباشرة
+- اجعل إجاباتك مختصرة (2-4 جمل كحد أقصى)
+- ادخل في الموضوع مباشرة
 ${taskReminder}`;
   }
 
@@ -107,7 +123,6 @@ ${taskReminder}`;
 - فكّر بعمق واستراتيجية
 - نظّم إجاباتك بشكل جميل
 - استخدم إيموجي باعتدال
-- كن كمساعد ذكي لمدير تنفيذي
 - حافظ على لطافتك رغم العمق
 ${taskReminder}`;
 }
