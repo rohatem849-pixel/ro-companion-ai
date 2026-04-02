@@ -12,9 +12,10 @@ interface Props {
   isSearching?: boolean;
   mode?: "lite" | "ryo";
   imagePreview?: string;
+  onPublishToBrick?: () => void;
 }
 
-function ChatMessage({ role, content, isStreaming, onRegenerate, searchResults, isSearching, mode = "lite", imagePreview }: Props) {
+function ChatMessage({ role, content, isStreaming, onRegenerate, searchResults, isSearching, mode = "ryo", imagePreview, onPublishToBrick }: Props) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = () => {
@@ -26,7 +27,7 @@ function ChatMessage({ role, content, isStreaming, onRegenerate, searchResults, 
   if (role === "user") {
     return (
       <div className="flex justify-end mb-3 animate-fade-in">
-        <div className="max-w-[85%] md:max-w-[70%] rounded-2xl rounded-tl-sm px-4 py-2.5 bg-user-bubble text-user-bubble-foreground text-sm leading-relaxed">
+        <div className="max-w-[85%] md:max-w-[70%] rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm leading-relaxed" style={{ background: "hsl(var(--user-bubble))", color: "hsl(var(--user-bubble-foreground))" }}>
           {imagePreview && (
             <img src={imagePreview} alt="مرفق" className="w-40 h-40 object-cover rounded-xl mb-2" />
           )}
@@ -46,7 +47,7 @@ function ChatMessage({ role, content, isStreaming, onRegenerate, searchResults, 
         </div>
       )}
 
-      {/* Waiting animation - three dots */}
+      {/* Waiting animation - three dots that morph to circle */}
       {isStreaming && !content && !isSearching && (
         <div className="flex items-center gap-1.5 mb-2 h-6">
           <div className="ro-loading-dot" style={{ animationDelay: "0ms" }} />
@@ -86,6 +87,11 @@ function ChatMessage({ role, content, isStreaming, onRegenerate, searchResults, 
           <button onClick={handleCopy} className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-all" title="نسخ">
             {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
           </button>
+          {onPublishToBrick && (
+            <button onClick={onPublishToBrick} className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-all" title="نشر في The Brick">
+              <span className="text-[11px]">🧱</span>
+            </button>
+          )}
         </div>
       )}
     </div>

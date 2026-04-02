@@ -1,0 +1,22 @@
+{
+  "name": "Ro - صديقك الذكي",
+  "short_name": "Ro",
+  "description": "مساعد ذكي من RyoOne",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1a1625",
+  "theme_color": "#7c3aed",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/ro-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/ro-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
