@@ -1,13 +1,16 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowUp, Square, Moon, Sun, Settings, ListTodo, Globe, Mic, X, Search, Trash2, Plus, Camera, Image as ImageIcon, Check } from "lucide-react";
+import { ArrowUp, Square, Moon, Sun, ListTodo, Globe, Mic, X, Search, Trash2, Plus, Camera, Image as ImageIcon, Check, Menu, Bookmark } from "lucide-react";
 import ChatMessage from "./ChatMessage";
 import TasksPanel from "./TasksPanel";
 import SettingsPanel from "./SettingsPanel";
 import NewsNotificationsPanel from "./NewsNotificationsPanel";
+import AppSidebar from "./AppSidebar";
+import TheBrick from "./TheBrick";
 import { UserProfile, Task, getTasks, saveTasks, buildSystemPrompt } from "@/lib/userProfile";
 import { streamChat, ChatMessage as AIChatMessage, checkAdminPassword, saveAdminNote } from "@/lib/aiApi";
 import { searchWeb, needsWebSearch, SearchResult } from "@/lib/webSearch";
+import { supabase } from "@/integrations/supabase/client";
 import roLogo from "@/assets/ro-logo.png";
 
 interface Message {
@@ -24,25 +27,11 @@ interface Props {
   onProfileUpdate: (p: UserProfile) => void;
 }
 
-function buildAdminCandidates(rawName: string) {
-  const trimmed = rawName.trim();
-  if (!trimmed) return [] as Array<{ password: string; displayName: string }>;
-  const parts = trimmed.split(/\s+/).filter(Boolean);
-  const candidates = new Map<string, string>();
-  candidates.set(trimmed, "");
-  for (let i = 1; i < parts.length; i++) {
-    const password = parts.slice(i).join(" ").trim();
-    const displayName = parts.slice(0, i).join(" ").trim();
-    if (password) candidates.set(password, displayName);
-  }
-  return Array.from(candidates, ([password, displayName]) => ({ password, displayName }));
-}
-
 export default function ChatApp({ profile, onProfileUpdate }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
-  const [mode, setMode] = useState<"lite" | "ryo">("lite");
+  const [mode, setMode] = useState<"lite" | "ryo">("ryo");
   const [isDark, setIsDark] = useState(false);
   const [ryoLight, setRyoLight] = useState(false);
   const [showTasks, setShowTasks] = useState(false);
@@ -52,7 +41,6 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
   const [isRecording, setIsRecording] = useState(false);
   const [searchMode, setSearchMode] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [adminDisplayName, setAdminDisplayName] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
   const [showModelSelector, setShowModelSelector] = useState(false);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
@@ -63,6 +51,15 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
   const recordingTextRef = useRef("");
   const setRecordingText = (val: string) => { recordingTextRef.current = val; setRecordingTextState(val); };
   const [notificationCount, setNotificationCount] = useState(0);
+  const [showSidebar, setShowSidebar] = useState(false);
+  const [showBrick, setShowBrick] = useState(false);
+  const [brickContent, setBrickContent] = useState("");
+  const [isSaved, setIsSaved] = useState(false);
+  const [directContacts, setDirectContacts] = useState<any[]>([]);
+
+  // Swipe detection for The Brick
+  const touchStartX = useRef(0);
+  const touchStartY = useRef(0);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -71,30 +68,66 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
-  // Admin verification
+  // Admin verification from importantNotes
   useEffect(() => {
     let cancelled = false;
-    const candidates = buildAdminCandidates(profile.name || "");
-    if (candidates.length === 0) {
-      setIsAdmin(false); setAdminDisplayName(""); setAdminPassword("");
+    const notes = profile.importantNotes?.trim();
+    if (!notes) {
+      setIsAdmin(false);
+      setAdminPassword("");
       return;
     }
-    const verifyAdmin = async () => {
-      for (const candidate of candidates) {
-        const result = await checkAdminPassword(candidate.password);
-        if (cancelled) return;
-        if (result) {
-          setIsAdmin(true);
-          setAdminDisplayName(candidate.displayName || "سيدي");
-          setAdminPassword(candidate.password);
-          return;
-        }
+    const verify = async () => {
+      const result = await checkAdminPassword(notes);
+      if (cancelled) return;
+      if (result) {
+        setIsAdmin(true);
+        setAdminPassword(notes);
+      } else {
+        setIsAdmin(false);
+        setAdminPassword("");
       }
-      setIsAdmin(false); setAdminDisplayName(""); setAdminPassword("");
     };
-    verifyAdmin();
+    verify();
     return () => { cancelled = true; };
-  }, [profile.name]);
+  }, [profile.importantNotes]);
+
+  // Load direct contacts
+  useEffect(() => {
+    if (!profile.userId) return;
+    const loadContacts = async () => {
+      const { data } = await supabase
+        .from("message_requests")
+        .select("*")
+        .or(`sender_id.eq.${profile.userId},receiver_id.eq.${profile.userId}`)
+        .eq("status", "accepted");
+      if (!data || data.length === 0) return;
+
+      const contactIds = data.map(r => r.sender_id === profile.userId ? r.receiver_id : r.sender_id);
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("id, username, display_name, avatar_url")
+        .in("id", contactIds);
+
+      setDirectContacts(profiles?.map(p => ({ ...p, lastMessage: "", unread: 0 })) || []);
+    };
+    loadContacts();
+  }, [profile.userId]);
+
+  // Swipe gesture
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX;
+    touchStartY.current = e.touches[0].clientY;
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    const deltaX = e.changedTouches[0].clientX - touchStartX.current;
+    const deltaY = Math.abs(e.changedTouches[0].clientY - touchStartY.current);
+    // Swipe right with enough force, minimal vertical movement
+    if (deltaX > 120 && deltaY < 80) {
+      setShowBrick(true);
+    }
+  };
 
   const scrollToBottom = () => chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   useEffect(() => { scrollToBottom(); }, [messages]);
@@ -131,12 +164,36 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
     if (abortRef.current) abortRef.current.abort();
     setIsStreaming(false);
     setStoppedResponse(false);
+    setIsSaved(false);
   };
 
   const stopStreaming = () => {
     if (abortRef.current) abortRef.current.abort();
     setIsStreaming(false);
     setStoppedResponse(true);
+  };
+
+  // Save conversation
+  const saveConversation = async () => {
+    if (!profile.userId || messages.length === 0) return;
+    const title = messages.find(m => m.role === "user")?.content?.slice(0, 50) || "محادثة";
+    try {
+      await supabase.from("conversations").insert({
+        user_id: profile.userId,
+        title,
+        mode,
+        messages: messages as any,
+      });
+      setIsSaved(true);
+    } catch (e) {
+      console.error("Save error:", e);
+    }
+  };
+
+  const loadConversation = (msgs: any[], convMode: string) => {
+    setMessages(msgs);
+    setMode(convMode as "lite" | "ryo");
+    setIsSaved(true);
   };
 
   // Voice recording
@@ -153,6 +210,7 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
         transcript += event.results[i][0].transcript;
       }
       setRecordingText(transcript);
+      setInput(transcript);
     };
     recognition.onerror = () => { setIsRecording(false); setRecordingText(""); };
     recognition.onend = () => {};
@@ -173,7 +231,7 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
     setIsRecording(false);
     const finalText = recordingTextRef.current.trim();
     if (finalText) {
-      setTimeout(() => sendMessage(finalText), 50);
+      setInput(finalText);
     }
     setRecordingText("");
   };
@@ -202,6 +260,16 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
     const userText = text || input.trim();
     if (!userText && regenerateIndex === undefined && !imageBase64) return;
 
+    // Check for @_ messaging pattern
+    if (userText && userText.startsWith("@_")) {
+      const username = userText.split(" ")[0].slice(2);
+      if (username) {
+        await handleMessageRequest(username);
+        setInput("");
+        return;
+      }
+    }
+
     let updatedMessages: Message[];
     const currentImagePreview = imagePreview;
     const currentImageBase64 = imageBase64;
@@ -225,6 +293,7 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
     setMessages(updatedMessages);
     setIsStreaming(true);
     setStoppedResponse(false);
+    setIsSaved(false);
 
     // Admin note saving
     if (isAdmin && adminPassword && userText) {
@@ -261,10 +330,10 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
         searchResults.map((r, i) => `[${i + 1}] ${r.title} (${r.source}): ${r.snippet}`).join("\n");
     }
 
-    const promptDisplayName = isAdmin ? adminDisplayName : profile.name;
+    const displayName = isAdmin ? "سيدي" : profile.name;
 
     const aiMessages: AIChatMessage[] = [
-      { role: "system", content: buildSystemPrompt({ ...profile, name: promptDisplayName }, tasks, mode, isAdmin) + searchContext },
+      { role: "system", content: buildSystemPrompt({ ...profile, name: displayName || profile.name }, tasks, mode, isAdmin) + searchContext },
       ...updatedMessages.map((m, index) => {
         const isLastUserMessage = index === updatedMessages.length - 1 && m.role === "user";
         if (isLastUserMessage && currentImageBase64) {
@@ -307,7 +376,77 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
       },
       abortRef.current.signal
     );
-  }, [input, messages, profile, tasks, mode, searchMode, isAdmin, adminPassword, adminDisplayName, imagePreview, imageBase64]);
+  }, [input, messages, profile, tasks, mode, searchMode, isAdmin, adminPassword, imagePreview, imageBase64]);
+
+  // Handle @_username messaging
+  const handleMessageRequest = async (username: string) => {
+    const { data: targetUser } = await supabase
+      .from("profiles")
+      .select("id, username, display_name")
+      .eq("username", username)
+      .maybeSingle();
+
+    if (!targetUser) {
+      setMessages(prev => [...prev, {
+        id: Date.now().toString(),
+        role: "assistant",
+        content: `المستخدم @${username} غير موجود 😔`,
+      }]);
+      return;
+    }
+
+    // Check blocks
+    const { data: blocked } = await supabase
+      .from("blocks")
+      .select("id")
+      .or(`and(blocker_id.eq.${targetUser.id},blocked_id.eq.${profile.userId}),and(blocker_id.eq.${profile.userId},blocked_id.eq.${targetUser.id})`)
+      .maybeSingle();
+
+    if (blocked) {
+      setMessages(prev => [...prev, {
+        id: Date.now().toString(),
+        role: "assistant",
+        content: "لا يمكن إرسال رسالة لهذا المستخدم 🚫",
+      }]);
+      return;
+    }
+
+    // Check existing request
+    const { data: existing } = await supabase
+      .from("message_requests")
+      .select("id, status")
+      .or(`and(sender_id.eq.${profile.userId},receiver_id.eq.${targetUser.id}),and(sender_id.eq.${targetUser.id},receiver_id.eq.${profile.userId})`)
+      .maybeSingle();
+
+    if (existing) {
+      if (existing.status === "accepted") {
+        setMessages(prev => [...prev, {
+          id: Date.now().toString(),
+          role: "assistant",
+          content: `أنت وَ @${username} متصلان بالفعل! ✅ يمكنكم التراسل من القائمة الجانبية.`,
+        }]);
+      } else {
+        setMessages(prev => [...prev, {
+          id: Date.now().toString(),
+          role: "assistant",
+          content: `طلب المراسلة مرسل بالفعل لـ @${username}. انتظر الموافقة ⏳`,
+        }]);
+      }
+      return;
+    }
+
+    // Send new request
+    await supabase.from("message_requests").insert({
+      sender_id: profile.userId,
+      receiver_id: targetUser.id,
+    });
+
+    setMessages(prev => [...prev, {
+      id: Date.now().toString(),
+      role: "assistant",
+      content: `تم إرسال طلب مراسلة لـ @${username} ✅💚\nسيتم إعلامه وبمجرد الموافقة ستتمكنون من التراسل!`,
+    }]);
+  };
 
   const handleRegenerate = (index: number) => sendMessage(undefined, index);
 
@@ -324,14 +463,21 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
     e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px";
   };
 
-  const displayName = isAdmin ? (adminDisplayName || "سيدي") : (profile.name || "");
+  const displayName = isAdmin ? "سيدي" : (profile.name || "");
   const isDarkMode = mode === "ryo" ? !ryoLight : isDark;
 
   return (
-    <div className="flex flex-col h-[100dvh] w-full transition-colors duration-500 bg-background">
+    <div
+      className="flex flex-col h-[100dvh] w-full transition-colors duration-500 bg-background"
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+    >
       {/* Header */}
       <header className="flex items-center justify-between px-3 py-2.5 border-b" dir="rtl">
         <div className="flex items-center gap-2">
+          <button onClick={() => setShowSidebar(true)} className="p-1.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-secondary transition-all">
+            <Menu className="w-4 h-4" />
+          </button>
           <img src={roLogo} alt="Ro" className="w-7 h-7 rounded-xl" />
           <span className="font-bold text-sm bg-clip-text text-transparent" style={{ backgroundImage: "var(--ro-gradient)" }}>
             Ro
@@ -339,9 +485,18 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
         </div>
         <div className="flex items-center gap-0.5">
           {messages.length > 0 && (
-            <button onClick={clearChat} className="p-1.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-secondary transition-all" title="مسح المحادثة">
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
+            <>
+              <button
+                onClick={saveConversation}
+                className={`p-1.5 rounded-xl transition-all ${isSaved ? "text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-secondary"}`}
+                title="حفظ المحادثة"
+              >
+                <Bookmark className={`w-3.5 h-3.5 ${isSaved ? "fill-current" : ""}`} />
+              </button>
+              <button onClick={clearChat} className="p-1.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-secondary transition-all" title="مسح المحادثة">
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </>
           )}
           <button onClick={toggleDark} className="p-1.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-secondary transition-all">
             {isDarkMode ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
@@ -360,8 +515,12 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
               </span>
             )}
           </button>
-          <button onClick={() => setShowSettings(true)} className="p-1.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-secondary transition-all">
-            <Settings className="w-3.5 h-3.5" />
+          <button
+            onClick={saveConversation}
+            className={`p-1.5 rounded-xl transition-all ${isSaved ? "text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-secondary"}`}
+            title="حفظ"
+          >
+            <Bookmark className={`w-3.5 h-3.5 ${isSaved ? "fill-current" : ""}`} />
           </button>
         </div>
       </header>
@@ -404,16 +563,14 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
                 </h2>
                 {mode === "ryo" ? (
                   <p className="text-base mt-2">
+                    أنا{" "}
                     <span className="font-bold bg-clip-text text-transparent" style={{ backgroundImage: "var(--ro-gradient)" }}>Ro</span>
-                    {" "}
-                    <span className="text-muted-foreground">ولكن أفكر بعمق</span>
-                    {" "}🧠😎
+                    {" "}صديقك الذكي 🧠
                   </p>
                 ) : (
                   <p className="text-lg font-medium text-muted-foreground">
-                    أنا{" "}
                     <span className="bg-clip-text text-transparent" style={{ backgroundImage: "var(--ro-gradient)" }}>Ro</span>
-                    {" "}صديقك الذكي ✨
+                    {" "}بس أسرع ⚡
                   </p>
                 )}
               </div>
@@ -431,6 +588,10 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
               isSearching={msg.isSearching}
               mode={mode}
               imagePreview={msg.imagePreview}
+              onPublishToBrick={msg.role === "assistant" && !isStreaming && msg.content ? () => {
+                setBrickContent(msg.content);
+                setShowBrick(true);
+              } : undefined}
             />
           ))}
           {stoppedResponse && (
@@ -472,9 +633,9 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
                 exit={{ opacity: 0, scale: 0.95 }}
                 className="flex items-center gap-3 bg-secondary rounded-2xl border px-3 py-3"
               >
-                {/* Send recording */}
-                <button onClick={sendRecording} className="ro-send-btn-circle flex-shrink-0">
-                  <ArrowUp className="w-4 h-4" />
+                {/* Stop recording & put text in input */}
+                <button onClick={stopRecording} className="ro-send-btn-circle flex-shrink-0" title="إيقاف التسجيل">
+                  <Square className="w-3.5 h-3.5" fill="currentColor" />
                 </button>
                 {/* Waveform */}
                 <div className="flex-1 flex items-center gap-0.5 justify-center">
@@ -493,7 +654,7 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
                   {recordingText || "تكلم الآن..."}
                 </span>
                 {/* Cancel */}
-                <button onClick={stopRecording} className="p-2 rounded-full text-muted-foreground hover:text-foreground hover:bg-background transition-all flex-shrink-0">
+                <button onClick={() => { if (recognitionRef.current) recognitionRef.current.stop(); setIsRecording(false); setRecordingText(""); setInput(""); }} className="p-2 rounded-full text-muted-foreground hover:text-foreground hover:bg-background transition-all flex-shrink-0">
                   <X className="w-4 h-4" />
                 </button>
               </motion.div>
@@ -512,7 +673,7 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
                     value={input}
                     onChange={handleTextareaChange}
                     onKeyDown={handleKeyDown}
-                    placeholder="اسأل صديقك الذكي"
+                    placeholder="اسأل Ro أي شيء..."
                     rows={1}
                     disabled={isStreaming}
                     className="w-full bg-transparent outline-none text-sm resize-none text-foreground placeholder:text-muted-foreground/60 leading-relaxed max-h-[120px] placeholder:text-[13px]"
@@ -593,17 +754,7 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
                 exit={{ opacity: 0, y: 10 }}
                 className="mt-2 bg-card rounded-2xl border shadow-xl p-4 space-y-1"
               >
-                <p className="text-xs font-bold text-muted-foreground mb-2 bg-clip-text text-transparent" style={{ backgroundImage: "var(--ro-gradient)" }}>RO Ai</p>
-                <button
-                  onClick={() => switchMode("lite")}
-                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl transition-all ${mode === "lite" ? "bg-secondary" : "hover:bg-secondary/50"}`}
-                >
-                  <div className="text-right">
-                    <p className="text-sm font-semibold">Lite</p>
-                    <p className="text-[11px] text-muted-foreground">يجيب بسرعة</p>
-                  </div>
-                  {mode === "lite" && <Check className="w-4 h-4 text-blue-500" />}
-                </button>
+                <p className="text-xs font-bold mb-2 bg-clip-text text-transparent" style={{ backgroundImage: "var(--ro-gradient)" }}>RO Ai</p>
                 <button
                   onClick={() => switchMode("ryo")}
                   className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl transition-all ${mode === "ryo" ? "bg-secondary" : "hover:bg-secondary/50"}`}
@@ -612,7 +763,17 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
                     <p className="text-sm font-semibold">Ryo Ai</p>
                     <p className="text-[11px] text-muted-foreground">يفكر بعمق</p>
                   </div>
-                  {mode === "ryo" && <Check className="w-4 h-4 text-blue-500" />}
+                  {mode === "ryo" && <Check className="w-4 h-4 text-primary" />}
+                </button>
+                <button
+                  onClick={() => switchMode("lite")}
+                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl transition-all ${mode === "lite" ? "bg-secondary" : "hover:bg-secondary/50"}`}
+                >
+                  <div className="text-right">
+                    <p className="text-sm font-semibold">Lite</p>
+                    <p className="text-[11px] text-muted-foreground">يجيب بسرعة</p>
+                  </div>
+                  {mode === "lite" && <Check className="w-4 h-4 text-primary" />}
                 </button>
               </motion.div>
             )}
@@ -651,8 +812,38 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
 
       {/* Settings modal */}
       {showSettings && (
-        <SettingsPanel profile={profile} onUpdate={onProfileUpdate} onClose={() => setShowSettings(false)} />
+        <SettingsPanel
+          profile={profile}
+          onUpdate={onProfileUpdate}
+          onClose={() => setShowSettings(false)}
+          isAdmin={isAdmin}
+        />
       )}
+
+      {/* Sidebar */}
+      <AppSidebar
+        isOpen={showSidebar}
+        onClose={() => setShowSidebar(false)}
+        profile={profile}
+        onLoadConversation={loadConversation}
+        onOpenSettings={() => setShowSettings(true)}
+        directContacts={directContacts}
+        onOpenDirectChat={() => {}}
+      />
+
+      {/* The Brick */}
+      <AnimatePresence>
+        {showBrick && (
+          <TheBrick
+            isOpen={showBrick}
+            onClose={() => { setShowBrick(false); setBrickContent(""); }}
+            profile={profile}
+            isAdmin={isAdmin}
+            adminPassword={adminPassword}
+            initialContent={brickContent}
+          />
+        )}
+      </AnimatePresence>
 
       {/* Click outside to close popups */}
       {(showModelSelector || showAttachMenu) && (
