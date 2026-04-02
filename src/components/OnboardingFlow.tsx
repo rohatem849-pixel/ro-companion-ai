@@ -1,14 +1,16 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, ArrowRight, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, X, Camera } from "lucide-react";
 import { UserProfile, saveProfile } from "@/lib/userProfile";
 import { validateProfileField } from "@/lib/inputValidation";
+import { supabase } from "@/integrations/supabase/client";
 
 interface Props {
   onComplete: (profile: UserProfile) => void;
 }
 
 const steps = [
+  { key: "username", label: "اختر اسم مستخدم فريد 🆔", placeholder: "مثال: ahmed_123", emoji: "🆔" },
   { key: "name", label: "ما اسمك؟ 😊", placeholder: "اكتب اسمك هنا...", emoji: "😊" },
   { key: "work", label: "ما عملك؟ 💼", placeholder: "مثال: طالب، مبرمج، مصمم...", emoji: "💼", hasSubQuestion: true },
   { key: "hobbies", label: "ما هواياتك؟ 🎨", placeholder: "مثال: القراءة، البرمجة، الرسم...", emoji: "🎨" },
@@ -23,10 +25,48 @@ export default function OnboardingFlow({ onComplete }: Props) {
   });
   const [showSchoolLevel, setShowSchoolLevel] = useState(false);
   const [error, setError] = useState("");
+  const [checkingUsername, setCheckingUsername] = useState(false);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [language, setLanguage] = useState<"ar" | "en" | "fr" | "es" | "tr">("ar");
 
   const current = steps[step];
 
-  const validateAndProceed = (key: string, value: string, next: () => void) => {
+  const languages = [
+    { code: "ar" as const, label: "العربية", flag: "🇸🇦" },
+    { code: "en" as const, label: "English", flag: "🇺🇸" },
+    { code: "fr" as const, label: "Français", flag: "🇫🇷" },
+    { code: "es" as const, label: "Español", flag: "🇪🇸" },
+    { code: "tr" as const, label: "Türkçe", flag: "🇹🇷" },
+  ];
+
+  const validateAndProceed = async (key: string, value: string, next: () => void) => {
+    if (key === "username") {
+      const username = value.trim().toLowerCase();
+      if (!username || username.length < 3) {
+        setError("اسم المستخدم يجب أن يكون 3 أحرف على الأقل");
+        return;
+      }
+      if (!/^[a-z0-9._]+$/.test(username)) {
+        setError("اسم المستخدم يجب أن يحتوي فقط على حروف إنجليزية وأرقام و . أو _");
+        return;
+      }
+      setCheckingUsername(true);
+      try {
+        const { data } = await supabase.from("profiles").select("id").eq("username", username).maybeSingle();
+        if (data) {
+          setError("اسم المستخدم مأخوذ، جرب اسماً آخر 😅");
+          setCheckingUsername(false);
+          return;
+        }
+      } catch {
+        // continue if check fails
+      }
+      setCheckingUsername(false);
+      setError("");
+      next();
+      return;
+    }
+
     const v = validateProfileField(key, value);
     if (!v.valid) {
       setError(v.message || "");
@@ -41,7 +81,7 @@ export default function OnboardingFlow({ onComplete }: Props) {
     const currentVal = (profile as any)[currentKey] || "";
 
     validateAndProceed(currentKey, currentVal, () => {
-      if (step === 1 && (profile.work.includes("مدرسة") || profile.work.includes("طالب") || profile.work.includes("دراسة"))) {
+      if (step === 2 && (profile.work.includes("مدرسة") || profile.work.includes("طالب") || profile.work.includes("دراسة"))) {
         if (!showSchoolLevel) {
           setShowSchoolLevel(true);
           return;
@@ -66,16 +106,63 @@ export default function OnboardingFlow({ onComplete }: Props) {
   };
 
   const skipQuestion = () => {
+    // username is mandatory
+    if (current.key === "username") {
+      setError("اسم المستخدم مطلوب ولا يمكن تخطيه");
+      return;
+    }
     setError("");
     setShowSchoolLevel(false);
     if (step < steps.length - 1) setStep(step + 1);
     else finishOnboarding();
   };
 
-  const skipAll = () => finishOnboarding();
+  const skipAll = () => {
+    if (!profile.username.trim() || profile.username.trim().length < 3) {
+      setError("اسم المستخدم مطلوب");
+      return;
+    }
+    finishOnboarding();
+  };
 
-  const finishOnboarding = () => {
-    const final = { ...profile, onboardingDone: true };
+  const handleAvatarSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = reader.result as string;
+      setAvatarPreview(base64);
+      setProfile(prev => ({ ...prev, avatarUrl: base64 }));
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const finishOnboarding = async () => {
+    const userId = crypto.randomUUID();
+    const username = profile.username.trim().toLowerCase();
+    const final: UserProfile = {
+      ...profile,
+      username,
+      userId,
+      onboardingDone: true,
+    };
+
+    // Save profile to database
+    try {
+      await supabase.from("profiles").insert({
+        id: userId,
+        username,
+        display_name: profile.name || username,
+        work: profile.work || null,
+        school_level: profile.schoolLevel || null,
+        hobbies: profile.hobbies || null,
+        country: profile.country || null,
+        avatar_url: profile.avatarUrl || null,
+      });
+    } catch (e) {
+      console.error("Profile save error:", e);
+    }
+
     saveProfile(final);
     onComplete(final);
   };
@@ -94,6 +181,23 @@ export default function OnboardingFlow({ onComplete }: Props) {
       style={{ background: "hsla(var(--background) / 0.97)", backdropFilter: "blur(12px)" }}
     >
       <div className="w-full max-w-sm flex flex-col items-center gap-6" dir="rtl">
+        {/* Language selector */}
+        {step === 0 && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex gap-2 flex-wrap justify-center">
+            {languages.map(lang => (
+              <button
+                key={lang.code}
+                onClick={() => setLanguage(lang.code)}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all border ${
+                  language === lang.code ? "bg-primary text-primary-foreground border-primary" : "bg-secondary text-muted-foreground border-transparent hover:bg-muted"
+                }`}
+              >
+                {lang.flag} {lang.label}
+              </button>
+            ))}
+          </motion.div>
+        )}
+
         <motion.div initial={{ y: -20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="text-center">
           <span className="text-3xl font-bold bg-clip-text text-transparent" style={{ backgroundImage: "var(--ro-gradient)" }}>
             Ro
@@ -124,6 +228,38 @@ export default function OnboardingFlow({ onComplete }: Props) {
                 />
                 {error && <p className="text-[11px] text-destructive">{error}</p>}
               </div>
+            ) : current.key === "username" ? (
+              <div className="flex flex-col gap-4">
+                <h2 className="text-lg font-bold text-right leading-relaxed">{current.label}</h2>
+                {/* Optional avatar */}
+                <div className="flex items-center gap-3 justify-center">
+                  <label className="cursor-pointer">
+                    <input type="file" accept="image/*" className="hidden" onChange={handleAvatarSelect} />
+                    <div className="w-16 h-16 rounded-2xl border-2 border-dashed border-muted-foreground/30 flex items-center justify-center overflow-hidden bg-secondary hover:bg-muted transition-all">
+                      {avatarPreview ? (
+                        <img src={avatarPreview} alt="avatar" className="w-full h-full object-cover" />
+                      ) : (
+                        <Camera className="w-5 h-5 text-muted-foreground" />
+                      )}
+                    </div>
+                    <p className="text-[10px] text-muted-foreground text-center mt-1">اختياري</p>
+                  </label>
+                </div>
+                <input
+                  dir="ltr"
+                  placeholder={current.placeholder}
+                  className="w-full rounded-2xl px-4 py-3 text-sm text-left outline-none transition-all border bg-secondary text-foreground placeholder:text-muted-foreground focus:border-primary"
+                  value={profile.username}
+                  onChange={e => updateField("username", e.target.value.toLowerCase().replace(/[^a-z0-9._]/g, ""))}
+                  onKeyDown={e => e.key === "Enter" && handleNext()}
+                  autoFocus
+                />
+                <p className="text-[10px] text-muted-foreground">
+                  حروف إنجليزية صغيرة وأرقام فقط • لا يمكن تغييره لاحقاً
+                </p>
+                {error && <p className="text-[11px] text-destructive">{error}</p>}
+                {checkingUsername && <p className="text-[11px] text-muted-foreground">جاري التحقق...</p>}
+              </div>
             ) : (
               <div className="flex flex-col gap-4">
                 <h2 className="text-lg font-bold text-right leading-relaxed">{current.label}</h2>
@@ -145,7 +281,8 @@ export default function OnboardingFlow({ onComplete }: Props) {
         <div className="flex items-center justify-between w-full">
           <button
             onClick={handleNext}
-            className="p-2.5 rounded-xl transition-all bg-primary text-primary-foreground hover:opacity-90"
+            disabled={checkingUsername}
+            className="p-2.5 rounded-xl transition-all bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50"
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
