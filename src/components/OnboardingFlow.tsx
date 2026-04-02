@@ -18,8 +18,8 @@ const steps = [
 export default function OnboardingFlow({ onComplete }: Props) {
   const [step, setStep] = useState(0);
   const [profile, setProfile] = useState<UserProfile>({
-    name: "", work: "", schoolLevel: "", hobbies: "", country: "",
-    importantNotes: "", badHabit: "", goodHabit: "", onboardingDone: false,
+    name: "", username: "", userId: "", work: "", schoolLevel: "", hobbies: "", country: "",
+    importantNotes: "", badHabit: "", goodHabit: "", avatarUrl: "", onboardingDone: false, notificationsEnabled: true,
   });
   const [showSchoolLevel, setShowSchoolLevel] = useState(false);
   const [error, setError] = useState("");
