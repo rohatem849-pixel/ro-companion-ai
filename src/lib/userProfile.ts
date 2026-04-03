@@ -12,6 +12,7 @@ export interface UserProfile {
   avatarUrl: string;
   onboardingDone: boolean;
   notificationsEnabled: boolean;
+  language: "ar" | "en" | "fr" | "es" | "tr";
 }
 
 export interface Task {
@@ -36,13 +37,14 @@ export function getProfile(): UserProfile {
         badHabit: p.badHabit || "", goodHabit: p.goodHabit || "",
         avatarUrl: p.avatarUrl || "", onboardingDone: p.onboardingDone || false,
         notificationsEnabled: p.notificationsEnabled !== false,
+        language: p.language || "ar",
       };
     }
   } catch {}
   return {
     name: "", username: "", userId: "", work: "", schoolLevel: "",
     hobbies: "", country: "", importantNotes: "", badHabit: "",
-    goodHabit: "", avatarUrl: "", onboardingDone: false, notificationsEnabled: true,
+    goodHabit: "", avatarUrl: "", onboardingDone: false, notificationsEnabled: true, language: "ar",
   };
 }
 
