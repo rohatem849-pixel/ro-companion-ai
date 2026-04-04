@@ -30,15 +30,18 @@ interface Props {
   onOpenSettings: () => void;
   directContacts: DirectContact[];
   onOpenDirectChat: (contact: DirectContact) => void;
+  onOpenBrick: () => void;
 }
 
-export default function AppSidebar({ isOpen, onClose, profile, onLoadConversation, onOpenSettings, directContacts, onOpenDirectChat }: Props) {
+export default function AppSidebar({ isOpen, onClose, profile, onLoadConversation, onOpenSettings, directContacts, onOpenDirectChat, onOpenBrick }: Props) {
   const [conversations, setConversations] = useState<SavedConversation[]>([]);
   const [loading, setLoading] = useState(false);
+  const [pendingRequests, setPendingRequests] = useState<any[]>([]);
 
   useEffect(() => {
     if (isOpen && profile.userId) {
       loadConversations();
+      loadPendingRequests();
     }
   }, [isOpen, profile.userId]);
 
@@ -58,6 +61,30 @@ export default function AppSidebar({ isOpen, onClose, profile, onLoadConversatio
     setLoading(false);
   };
 
+  const loadPendingRequests = async () => {
+    if (!profile.userId) return;
+    const { data } = await supabase
+      .from("message_requests")
+      .select("*")
+      .eq("receiver_id", profile.userId)
+      .eq("status", "pending");
+
+    if (data && data.length > 0) {
+      const senderIds = data.map(r => r.sender_id);
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("id, username, display_name, avatar_url")
+        .in("id", senderIds);
+      const profileMap = new Map(profiles?.map(p => [p.id, p]) || []);
+      setPendingRequests(data.map(r => ({
+        ...r,
+        senderProfile: profileMap.get(r.sender_id),
+      })));
+    } else {
+      setPendingRequests([]);
+    }
+  };
+
   const deleteConversation = async (id: string) => {
     await supabase.from("conversations").delete().eq("id", id);
     setConversations(prev => prev.filter(c => c.id !== id));
@@ -66,6 +93,22 @@ export default function AppSidebar({ isOpen, onClose, profile, onLoadConversatio
   const togglePin = async (id: string, pinned: boolean) => {
     await supabase.from("conversations").update({ pinned: !pinned }).eq("id", id);
     setConversations(prev => prev.map(c => c.id === id ? { ...c, pinned: !pinned } : c));
+  };
+
+  const acceptRequest = async (requestId: string) => {
+    await supabase.from("message_requests").update({ status: "accepted" }).eq("id", requestId);
+    setPendingRequests(prev => prev.filter(r => r.id !== requestId));
+  };
+
+  const rejectRequest = async (requestId: string) => {
+    await supabase.from("message_requests").update({ status: "rejected" }).eq("id", requestId);
+    setPendingRequests(prev => prev.filter(r => r.id !== requestId));
+  };
+
+  const blockUser = async (requestId: string, senderId: string) => {
+    await supabase.from("message_requests").update({ status: "rejected" }).eq("id", requestId);
+    await supabase.from("blocks").insert({ blocker_id: profile.userId, blocked_id: senderId });
+    setPendingRequests(prev => prev.filter(r => r.id !== requestId));
   };
 
   const installPWA = () => {
@@ -102,8 +145,35 @@ export default function AppSidebar({ isOpen, onClose, profile, onLoadConversatio
               </button>
             </div>
 
-            {/* Conversations */}
+            {/* Content */}
             <div className="flex-1 overflow-y-auto p-3 space-y-1">
+              {/* Pending message requests */}
+              {pendingRequests.length > 0 && (
+                <>
+                  <p className="text-[11px] font-bold text-muted-foreground mb-2 px-1" style={{ color: "hsl(35, 90%, 50%)" }}>📩 طلبات مراسلة ({pendingRequests.length})</p>
+                  {pendingRequests.map(req => (
+                    <div key={req.id} className="p-2.5 rounded-xl bg-secondary/50 border mb-2">
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className="w-7 h-7 rounded-lg overflow-hidden bg-muted flex items-center justify-center">
+                          {req.senderProfile?.avatar_url ? (
+                            <img src={req.senderProfile.avatar_url} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <span className="text-xs">👤</span>
+                          )}
+                        </div>
+                        <p className="text-xs font-medium">@{req.senderProfile?.username || "مجهول"}</p>
+                      </div>
+                      <div className="flex gap-1.5">
+                        <button onClick={() => acceptRequest(req.id)} className="flex-1 py-1.5 rounded-lg bg-green-500/20 text-green-600 text-[10px] font-medium hover:bg-green-500/30">قبول</button>
+                        <button onClick={() => rejectRequest(req.id)} className="flex-1 py-1.5 rounded-lg bg-secondary text-muted-foreground text-[10px] font-medium hover:bg-muted">رفض</button>
+                        <button onClick={() => blockUser(req.id, req.sender_id)} className="py-1.5 px-2 rounded-lg bg-destructive/20 text-destructive text-[10px] font-medium hover:bg-destructive/30">حظر</button>
+                      </div>
+                    </div>
+                  ))}
+                  <div className="border-t my-2" />
+                </>
+              )}
+
               <p className="text-[11px] font-bold text-muted-foreground mb-2 px-1">💬 المحادثات المحفوظة</p>
               {loading ? (
                 <div className="flex justify-center py-4">
@@ -182,6 +252,12 @@ export default function AppSidebar({ isOpen, onClose, profile, onLoadConversatio
 
             {/* Bottom actions */}
             <div className="border-t p-3 space-y-1">
+              <button
+                onClick={() => { onOpenBrick(); }}
+                className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-secondary transition-all"
+              >
+                <span>🧱</span> The Brick
+              </button>
               <button
                 onClick={() => { onOpenSettings(); onClose(); }}
                 className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-secondary transition-all"

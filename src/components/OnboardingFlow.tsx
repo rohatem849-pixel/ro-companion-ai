@@ -21,7 +21,7 @@ export default function OnboardingFlow({ onComplete }: Props) {
   const [step, setStep] = useState(0);
   const [profile, setProfile] = useState<UserProfile>({
     name: "", username: "", userId: "", work: "", schoolLevel: "", hobbies: "", country: "",
-    importantNotes: "", badHabit: "", goodHabit: "", avatarUrl: "", onboardingDone: false, notificationsEnabled: true,
+    importantNotes: "", badHabit: "", goodHabit: "", avatarUrl: "", onboardingDone: false, notificationsEnabled: true, language: "ar",
   });
   const [showSchoolLevel, setShowSchoolLevel] = useState(false);
   const [error, setError] = useState("");
@@ -58,9 +58,7 @@ export default function OnboardingFlow({ onComplete }: Props) {
           setCheckingUsername(false);
           return;
         }
-      } catch {
-        // continue if check fails
-      }
+      } catch {}
       setCheckingUsername(false);
       setError("");
       next();
@@ -106,7 +104,6 @@ export default function OnboardingFlow({ onComplete }: Props) {
   };
 
   const skipQuestion = () => {
-    // username is mandatory
     if (current.key === "username") {
       setError("اسم المستخدم مطلوب ولا يمكن تخطيه");
       return;
@@ -144,10 +141,10 @@ export default function OnboardingFlow({ onComplete }: Props) {
       ...profile,
       username,
       userId,
+      language,
       onboardingDone: true,
     };
 
-    // Save profile to database
     try {
       await supabase.from("profiles").insert({
         id: userId,
@@ -181,7 +178,6 @@ export default function OnboardingFlow({ onComplete }: Props) {
       style={{ background: "hsla(var(--background) / 0.97)", backdropFilter: "blur(12px)" }}
     >
       <div className="w-full max-w-sm flex flex-col items-center gap-6" dir="rtl">
-        {/* Language selector */}
         {step === 0 && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex gap-2 flex-wrap justify-center">
             {languages.map(lang => (
@@ -231,7 +227,6 @@ export default function OnboardingFlow({ onComplete }: Props) {
             ) : current.key === "username" ? (
               <div className="flex flex-col gap-4">
                 <h2 className="text-lg font-bold text-right leading-relaxed">{current.label}</h2>
-                {/* Optional avatar */}
                 <div className="flex items-center gap-3 justify-center">
                   <label className="cursor-pointer">
                     <input type="file" accept="image/*" className="hidden" onChange={handleAvatarSelect} />
