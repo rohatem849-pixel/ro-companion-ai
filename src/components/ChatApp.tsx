@@ -56,6 +56,7 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
   const [brickContent, setBrickContent] = useState("");
   const [isSaved, setIsSaved] = useState(false);
   const [directContacts, setDirectContacts] = useState<any[]>([]);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
 
   // Swipe detection for The Brick
   const touchStartX = useRef(0);
@@ -123,7 +124,6 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
   const handleTouchEnd = (e: React.TouchEvent) => {
     const deltaX = e.changedTouches[0].clientX - touchStartX.current;
     const deltaY = Math.abs(e.changedTouches[0].clientY - touchStartY.current);
-    // Swipe right with enough force, minimal vertical movement
     if (deltaX > 120 && deltaY < 80) {
       setShowBrick(true);
     }
@@ -156,7 +156,14 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
     setMessages([]);
     setMode(newMode);
     setShowModelSelector(false);
-    if (abortRef.current) abortRef.current.abort();
+  };
+
+  const handleClearChat = () => {
+    if (messages.length > 0 && !isSaved) {
+      setShowClearConfirm(true);
+    } else {
+      clearChat();
+    }
   };
 
   const clearChat = () => {
@@ -165,6 +172,12 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
     setIsStreaming(false);
     setStoppedResponse(false);
     setIsSaved(false);
+    setShowClearConfirm(false);
+  };
+
+  const saveAndClear = async () => {
+    await saveConversation();
+    clearChat();
   };
 
   const stopStreaming = () => {
@@ -196,7 +209,7 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
     setIsSaved(true);
   };
 
-  // Voice recording
+  // Voice recording - speech to text in input field
   const startRecording = () => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) return;
@@ -230,9 +243,7 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
     if (recognitionRef.current) recognitionRef.current.stop();
     setIsRecording(false);
     const finalText = recordingTextRef.current.trim();
-    if (finalText) {
-      setInput(finalText);
-    }
+    if (finalText) setInput(finalText);
     setRecordingText("");
   };
 
@@ -485,18 +496,18 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
         </div>
         <div className="flex items-center gap-0.5">
           {messages.length > 0 && (
-            <>
-              <button
-                onClick={saveConversation}
-                className={`p-1.5 rounded-xl transition-all ${isSaved ? "text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-secondary"}`}
-                title="حفظ المحادثة"
-              >
-                <Bookmark className={`w-3.5 h-3.5 ${isSaved ? "fill-current" : ""}`} />
-              </button>
-              <button onClick={clearChat} className="p-1.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-secondary transition-all" title="مسح المحادثة">
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
-            </>
+            <button
+              onClick={saveConversation}
+              className={`p-1.5 rounded-xl transition-all ${isSaved ? "text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-secondary"}`}
+              title="حفظ المحادثة"
+            >
+              <Bookmark className={`w-3.5 h-3.5 ${isSaved ? "fill-current" : ""}`} />
+            </button>
+          )}
+          {messages.length > 0 && (
+            <button onClick={handleClearChat} className="p-1.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-secondary transition-all" title="مسح المحادثة">
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
           )}
           <button onClick={toggleDark} className="p-1.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-secondary transition-all">
             {isDarkMode ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
@@ -514,13 +525,6 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
                 {notificationCount}
               </span>
             )}
-          </button>
-          <button
-            onClick={saveConversation}
-            className={`p-1.5 rounded-xl transition-all ${isSaved ? "text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-secondary"}`}
-            title="حفظ"
-          >
-            <Bookmark className={`w-3.5 h-3.5 ${isSaved ? "fill-current" : ""}`} />
           </button>
         </div>
       </header>
@@ -633,11 +637,9 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
                 exit={{ opacity: 0, scale: 0.95 }}
                 className="flex items-center gap-3 bg-secondary rounded-2xl border px-3 py-3"
               >
-                {/* Stop recording & put text in input */}
-                <button onClick={stopRecording} className="ro-send-btn-circle flex-shrink-0" title="إيقاف التسجيل">
+                <button onClick={stopRecording} className="ro-send-btn-circle flex-shrink-0" title="إيقاف وإضافة للنص">
                   <Square className="w-3.5 h-3.5" fill="currentColor" />
                 </button>
-                {/* Waveform */}
                 <div className="flex-1 flex items-center gap-0.5 justify-center">
                   {Array.from({ length: 24 }).map((_, i) => (
                     <div
@@ -653,7 +655,6 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
                 <span className="text-xs text-muted-foreground truncate max-w-[100px]">
                   {recordingText || "تكلم الآن..."}
                 </span>
-                {/* Cancel */}
                 <button onClick={() => { if (recognitionRef.current) recognitionRef.current.stop(); setIsRecording(false); setRecordingText(""); setInput(""); }} className="p-2 rounded-full text-muted-foreground hover:text-foreground hover:bg-background transition-all flex-shrink-0">
                   <X className="w-4 h-4" />
                 </button>
@@ -673,7 +674,7 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
                     value={input}
                     onChange={handleTextareaChange}
                     onKeyDown={handleKeyDown}
-                    placeholder="اسأل Ro أي شيء..."
+                    placeholder="اسأل صديقك الذكي RO..."
                     rows={1}
                     disabled={isStreaming}
                     className="w-full bg-transparent outline-none text-sm resize-none text-foreground placeholder:text-muted-foreground/60 leading-relaxed max-h-[120px] placeholder:text-[13px]"
@@ -810,6 +811,40 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
         </div>
       </div>
 
+      {/* Clear confirm dialog */}
+      <AnimatePresence>
+        {showClearConfirm && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[160] flex items-center justify-center p-4"
+            style={{ background: "hsla(var(--background) / 0.7)", backdropFilter: "blur(4px)" }}
+          >
+            <motion.div
+              initial={{ scale: 0.9 }}
+              animate={{ scale: 1 }}
+              exit={{ scale: 0.9 }}
+              className="bg-card rounded-2xl border p-5 max-w-xs w-full shadow-2xl text-center space-y-4"
+              dir="rtl"
+            >
+              <p className="text-sm font-bold">هل تريد حفظ المحادثة قبل المسح؟ 💬</p>
+              <div className="flex flex-col gap-2">
+                <button onClick={saveAndClear} className="w-full py-2 rounded-xl bg-primary text-primary-foreground text-sm font-medium">
+                  حفظ ثم مسح
+                </button>
+                <button onClick={clearChat} className="w-full py-2 rounded-xl bg-destructive text-destructive-foreground text-sm font-medium">
+                  مسح بدون حفظ
+                </button>
+                <button onClick={() => setShowClearConfirm(false)} className="w-full py-2 rounded-xl bg-secondary text-secondary-foreground text-sm font-medium">
+                  إلغاء
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Settings modal */}
       {showSettings && (
         <SettingsPanel
@@ -829,6 +864,7 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
         onOpenSettings={() => setShowSettings(true)}
         directContacts={directContacts}
         onOpenDirectChat={() => {}}
+        onOpenBrick={() => { setShowSidebar(false); setShowBrick(true); }}
       />
 
       {/* The Brick */}

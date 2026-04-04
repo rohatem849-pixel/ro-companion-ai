@@ -1,8 +1,9 @@
-import { useState, useEffect } from "react";
-import { X } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { X, Camera } from "lucide-react";
 import { UserProfile, saveProfile } from "@/lib/userProfile";
 import { validateProfileField } from "@/lib/inputValidation";
 import { checkAdminPassword, saveAdminNote, getAdminNotes, deleteAdminNote } from "@/lib/aiApi";
+import { supabase } from "@/integrations/supabase/client";
 
 interface Props {
   profile: UserProfile;
@@ -17,6 +18,8 @@ export default function SettingsPanel({ profile, onUpdate, onClose, isAdmin }: P
   const [adminNotes, setAdminNotes] = useState<Array<{ id: string; note: string }>>([]);
   const [newAdminNote, setNewAdminNote] = useState("");
   const [showAdminMemory, setShowAdminMemory] = useState(false);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(profile.avatarUrl || null);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (isAdmin) {
@@ -47,28 +50,46 @@ export default function SettingsPanel({ profile, onUpdate, onClose, isAdmin }: P
 
   const handleChange = (key: string, value: string) => {
     setLocal(prev => ({ ...prev, [key]: value }));
-    // Skip validation for importantNotes (admin password field)
     if (key === "importantNotes") {
-      setErrors(prev => {
-        const copy = { ...prev };
-        delete copy[key];
-        return copy;
-      });
+      setErrors(prev => { const copy = { ...prev }; delete copy[key]; return copy; });
       return;
     }
     const validation = validateProfileField(key, value);
     if (!validation.valid) {
       setErrors(prev => ({ ...prev, [key]: validation.message || "" }));
     } else {
-      setErrors(prev => {
-        const copy = { ...prev };
-        delete copy[key];
-        return copy;
-      });
+      setErrors(prev => { const copy = { ...prev }; delete copy[key]; return copy; });
     }
   };
 
-  const save = () => {
+  const handleAvatarSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const base64 = reader.result as string;
+      setAvatarPreview(base64);
+
+      // Upload to storage
+      try {
+        const ext = file.name.split(".").pop() || "jpg";
+        const fileName = `avatars/${profile.userId}/${Date.now()}.${ext}`;
+        const base64Data = base64.split(",")[1];
+        await supabase.storage.from("uploads").upload(fileName, Uint8Array.from(atob(base64Data), c => c.charCodeAt(0)), {
+          contentType: file.type,
+          upsert: true,
+        });
+        const { data: urlData } = supabase.storage.from("uploads").getPublicUrl(fileName);
+        setLocal(prev => ({ ...prev, avatarUrl: urlData.publicUrl }));
+      } catch (err) {
+        console.error("Avatar upload error:", err);
+        setLocal(prev => ({ ...prev, avatarUrl: base64 }));
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const save = async () => {
     let hasError = false;
     const newErrors: Record<string, string> = {};
     for (const f of fields) {
@@ -84,10 +105,38 @@ export default function SettingsPanel({ profile, onUpdate, onClose, isAdmin }: P
       setErrors(newErrors);
       return;
     }
+
+    // Update database profile
+    if (profile.userId) {
+      try {
+        await supabase.from("profiles").update({
+          display_name: local.name || local.username,
+          work: local.work || null,
+          school_level: local.schoolLevel || null,
+          hobbies: local.hobbies || null,
+          country: local.country || null,
+          important_notes: local.importantNotes || null,
+          bad_habit: local.badHabit || null,
+          good_habit: local.goodHabit || null,
+          avatar_url: local.avatarUrl || null,
+        }).eq("id", profile.userId);
+      } catch (e) {
+        console.error("Profile update error:", e);
+      }
+    }
+
     saveProfile(local);
     onUpdate(local);
     onClose();
   };
+
+  const languages = [
+    { code: "ar" as const, label: "العربية", flag: "🇸🇦" },
+    { code: "en" as const, label: "English", flag: "🇺🇸" },
+    { code: "fr" as const, label: "Français", flag: "🇫🇷" },
+    { code: "es" as const, label: "Español", flag: "🇪🇸" },
+    { code: "tr" as const, label: "Türkçe", flag: "🇹🇷" },
+  ];
 
   const fields = [
     { key: "name", label: "الاسم", placeholder: "اسمك" },
@@ -110,6 +159,24 @@ export default function SettingsPanel({ profile, onUpdate, onClose, isAdmin }: P
           </button>
         </div>
 
+        {/* Avatar */}
+        <div className="flex items-center gap-3 mb-4">
+          <label className="cursor-pointer">
+            <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarSelect} />
+            <div className="w-14 h-14 rounded-2xl border-2 border-dashed border-muted-foreground/30 flex items-center justify-center overflow-hidden bg-secondary hover:bg-muted transition-all">
+              {avatarPreview ? (
+                <img src={avatarPreview} alt="avatar" className="w-full h-full object-cover" />
+              ) : (
+                <Camera className="w-5 h-5 text-muted-foreground" />
+              )}
+            </div>
+          </label>
+          <div>
+            <p className="text-xs font-medium">صورة الملف الشخصي</p>
+            <p className="text-[10px] text-muted-foreground">اضغط لتغيير الصورة</p>
+          </div>
+        </div>
+
         {/* Username display */}
         {profile.username && (
           <div className="mb-3 p-3 rounded-xl bg-secondary">
@@ -117,6 +184,24 @@ export default function SettingsPanel({ profile, onUpdate, onClose, isAdmin }: P
             <p className="text-sm font-mono font-bold" dir="ltr">@{profile.username}</p>
           </div>
         )}
+
+        {/* Language selector */}
+        <div className="mb-4">
+          <label className="text-xs font-medium text-muted-foreground mb-2 block">اللغة</label>
+          <div className="flex gap-2 flex-wrap">
+            {languages.map(lang => (
+              <button
+                key={lang.code}
+                onClick={() => setLocal(prev => ({ ...prev, language: lang.code }))}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all border ${
+                  local.language === lang.code ? "bg-primary text-primary-foreground border-primary" : "bg-secondary text-muted-foreground border-transparent hover:bg-muted"
+                }`}
+              >
+                {lang.flag} {lang.label}
+              </button>
+            ))}
+          </div>
+        </div>
 
         <div className="space-y-3">
           {fields.map(f => (
@@ -126,7 +211,6 @@ export default function SettingsPanel({ profile, onUpdate, onClose, isAdmin }: P
                 value={(local as any)[f.key] || ""}
                 onChange={e => handleChange(f.key, e.target.value)}
                 placeholder={f.placeholder}
-                type={f.key === "importantNotes" ? "text" : "text"}
                 className={`w-full rounded-xl px-3 py-2.5 text-sm bg-secondary text-foreground border outline-none focus:border-primary placeholder:text-muted-foreground ${
                   errors[f.key] ? "border-destructive" : ""
                 }`}
@@ -136,7 +220,7 @@ export default function SettingsPanel({ profile, onUpdate, onClose, isAdmin }: P
           ))}
         </div>
 
-        {/* Admin memory section - only visible to admin */}
+        {/* Admin memory section */}
         {isAdmin && showAdminMemory && (
           <div className="mt-5 p-4 rounded-2xl border-2 border-primary/20 bg-primary/5">
             <h3 className="text-sm font-bold mb-3 flex items-center gap-2">

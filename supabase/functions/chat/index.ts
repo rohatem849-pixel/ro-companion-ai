@@ -101,14 +101,17 @@ serve(async (req) => {
       Array.isArray(message.content) && message.content.some((part: any) => part?.type === "image_url")
     );
 
+    // Use gemini-2.5-flash for images (multimodal) instead of openai which may fail with base64
     const model = hasImageInput
-      ? "openai/gpt-5-mini"
+      ? "google/gemini-2.5-flash"
       : mode === "lite"
         ? "google/gemini-2.5-flash-lite"
         : "google/gemini-2.5-flash";
     
     const maxTokens = hasImageInput ? 1200 : mode === "lite" ? 600 : 3000;
-    const temperature = hasImageInput ? undefined : mode === "lite" ? 0.7 : 0.4;
+    const temperature = mode === "lite" ? 0.7 : 0.4;
+
+    console.log("Using model:", model, "hasImage:", hasImageInput, "mode:", mode);
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -121,13 +124,15 @@ serve(async (req) => {
         messages: enrichedMessages,
         stream: true,
         max_tokens: maxTokens,
-        ...(temperature !== undefined ? { temperature } : {}),
+        temperature,
         frequency_penalty: 0.8,
         presence_penalty: 0.5,
       }),
     });
 
     if (!response.ok) {
+      const t = await response.text();
+      console.error("AI gateway error:", response.status, t);
       if (response.status === 429) {
         return new Response(JSON.stringify({ error: "الخادم مشغول حالياً، جرب بعد لحظات 🙏" }), {
           status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -138,8 +143,6 @@ serve(async (req) => {
           status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      const t = await response.text();
-      console.error("AI gateway error:", response.status, t);
       return new Response(JSON.stringify({ error: "خطأ في الاتصال بالذكاء الاصطناعي" }), {
         status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
