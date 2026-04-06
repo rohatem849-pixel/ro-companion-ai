@@ -333,15 +333,33 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
     setRecordingText("");
   };
 
-  // Image handling
-  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Image handling with compression
+  const compressImage = (dataUrl: string, maxWidth = 800): Promise<string> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const ratio = Math.min(maxWidth / img.width, maxWidth / img.height, 1);
+        canvas.width = img.width * ratio;
+        canvas.height = img.height * ratio;
+        const ctx = canvas.getContext("2d")!;
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/jpeg", 0.7));
+      };
+      img.onerror = () => resolve(dataUrl);
+      img.src = dataUrl;
+    });
+  };
+
+  const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       const base64 = reader.result as string;
-      setImagePreview(base64);
-      setImageBase64Data(base64);
+      const compressed = await compressImage(base64);
+      setImagePreview(compressed);
+      setImageBase64Data(compressed);
     };
     reader.readAsDataURL(file);
     e.target.value = "";
