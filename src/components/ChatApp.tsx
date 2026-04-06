@@ -190,7 +190,6 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
 
   const switchMode = (newMode: "lite" | "ryo") => {
     if (newMode === mode) return;
-    setMessages([]);
     setMode(newMode);
     setShowModelSelector(false);
   };
