@@ -967,7 +967,7 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
         onLoadConversation={loadConversation}
         onOpenSettings={() => setShowSettings(true)}
         directContacts={directContacts}
-        onOpenDirectChat={() => {}}
+        onOpenDirectChat={(contact) => { openDirectChat(contact); setShowSidebar(false); }}
         onOpenBrick={() => { setShowSidebar(false); setShowBrick(true); }}
       />
 
