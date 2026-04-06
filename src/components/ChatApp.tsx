@@ -209,6 +209,7 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
     setStoppedResponse(false);
     setIsSaved(false);
     setShowClearConfirm(false);
+    localStorage.removeItem("ro_active_session");
   };
 
   const saveAndClear = async () => {
