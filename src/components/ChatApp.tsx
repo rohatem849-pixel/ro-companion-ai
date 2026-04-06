@@ -244,7 +244,56 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
     setMessages(msgs);
     setMode(convMode as "lite" | "ryo");
     setIsSaved(true);
+    setDirectChatTarget(null);
   };
+
+  // Direct chat functions
+  const openDirectChat = async (contact: any) => {
+    setDirectChatTarget(contact);
+    setDirectMessages([]);
+    // Load chat history
+    if (profile.userId && contact.id) {
+      const { data } = await supabase.from("direct_messages")
+        .select("id, content, sender_id, created_at")
+        .or(`and(sender_id.eq.${profile.userId},receiver_id.eq.${contact.id}),and(sender_id.eq.${contact.id},receiver_id.eq.${profile.userId})`)
+        .order("created_at", { ascending: true }).limit(100);
+      if (data) setDirectMessages(data);
+      // Mark as read
+      await supabase.from("direct_messages").update({ is_read: true })
+        .eq("sender_id", contact.id).eq("receiver_id", profile.userId).eq("is_read", false);
+    }
+  };
+
+  const sendDirectMessage = async () => {
+    if (!directInput.trim() || !directChatTarget || !profile.userId) return;
+    const content = directInput.trim();
+    const tempId = crypto.randomUUID();
+    // Optimistic
+    setDirectMessages(prev => [...prev, { id: tempId, content, sender_id: profile.userId, created_at: new Date().toISOString() }]);
+    setDirectInput("");
+    try {
+      await supabase.from("direct_messages").insert({
+        sender_id: profile.userId,
+        receiver_id: directChatTarget.id,
+        content,
+      });
+    } catch (e) { console.error("DM send error:", e); }
+  };
+
+  // Poll direct messages when in a direct chat
+  useEffect(() => {
+    if (!directChatTarget || !profile.userId) return;
+    const poll = setInterval(async () => {
+      const { data } = await supabase.from("direct_messages")
+        .select("id, content, sender_id, created_at")
+        .or(`and(sender_id.eq.${profile.userId},receiver_id.eq.${directChatTarget.id}),and(sender_id.eq.${directChatTarget.id},receiver_id.eq.${profile.userId})`)
+        .order("created_at", { ascending: true }).limit(100);
+      if (data) setDirectMessages(data);
+      await supabase.from("direct_messages").update({ is_read: true })
+        .eq("sender_id", directChatTarget.id).eq("receiver_id", profile.userId).eq("is_read", false);
+    }, 3000);
+    return () => clearInterval(poll);
+  }, [directChatTarget, profile.userId]);
 
   // Voice recording - speech to text in input field
   const startRecording = () => {
