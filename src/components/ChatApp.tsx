@@ -985,6 +985,72 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
         )}
       </AnimatePresence>
 
+      {/* Direct Chat Overlay */}
+      <AnimatePresence>
+        {directChatTarget && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[130] bg-background flex flex-col"
+            dir="rtl"
+          >
+            <header className="flex items-center justify-between px-4 py-3 border-b bg-card">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl overflow-hidden bg-muted flex items-center justify-center">
+                  {directChatTarget.avatar_url ? (
+                    <img src={directChatTarget.avatar_url} alt="" className="w-full h-full object-cover" />
+                  ) : <span className="text-sm">👤</span>}
+                </div>
+                <div>
+                  <p className="text-sm font-bold">@{directChatTarget.username}</p>
+                  <p className="text-[10px] text-muted-foreground">{directChatTarget.display_name}</p>
+                </div>
+              </div>
+              <button onClick={() => setDirectChatTarget(null)} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary">
+                <X className="w-5 h-5" />
+              </button>
+            </header>
+            <main className="flex-1 overflow-y-auto px-3 py-3 space-y-2">
+              {directMessages.length === 0 && (
+                <p className="text-center text-sm text-muted-foreground py-12">ابدأ المحادثة 💬</p>
+              )}
+              {directMessages.map(msg => (
+                <div key={msg.id} className={`flex ${msg.sender_id === profile.userId ? "justify-start" : "justify-end"}`}>
+                  <div className={`max-w-[75%] rounded-2xl px-3.5 py-2 text-sm ${
+                    msg.sender_id === profile.userId
+                      ? "bg-primary text-primary-foreground rounded-br-md"
+                      : "bg-secondary text-foreground rounded-bl-md"
+                  }`}>
+                    <p>{msg.content}</p>
+                    <p className="text-[9px] opacity-60 mt-0.5">{new Date(msg.created_at).toLocaleTimeString("ar", { hour: "2-digit", minute: "2-digit" })}</p>
+                  </div>
+                </div>
+              ))}
+            </main>
+            <div className="px-3 pb-3 pt-1.5">
+              <div className="flex items-center gap-2 bg-secondary rounded-2xl border px-3 py-2">
+                <textarea
+                  value={directInput}
+                  onChange={e => setDirectInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendDirectMessage(); } }}
+                  placeholder="اكتب رسالة..."
+                  rows={1}
+                  className="flex-1 bg-transparent outline-none text-sm resize-none placeholder:text-muted-foreground/60"
+                />
+                <button
+                  onClick={sendDirectMessage}
+                  disabled={!directInput.trim()}
+                  className="ro-send-btn-circle disabled:opacity-30 flex-shrink-0"
+                >
+                  <ArrowUp className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Click outside to close popups */}
       {(showModelSelector || showAttachMenu) && (
         <div className="fixed inset-0 z-[-1]" onClick={() => { setShowModelSelector(false); setShowAttachMenu(false); }} />
