@@ -96,7 +96,7 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
     return () => { cancelled = true; };
   }, [profile.importantNotes]);
 
-  // Load direct contacts
+  // Load direct contacts + last messages
   useEffect(() => {
     if (!profile.userId) return;
     const loadContacts = async () => {
@@ -105,7 +105,7 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
         .select("*")
         .or(`sender_id.eq.${profile.userId},receiver_id.eq.${profile.userId}`)
         .eq("status", "accepted");
-      if (!data || data.length === 0) return;
+      if (!data || data.length === 0) { setDirectContacts([]); return; }
 
       const contactIds = data.map(r => r.sender_id === profile.userId ? r.receiver_id : r.sender_id);
       const { data: profiles } = await supabase
@@ -113,10 +113,44 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
         .select("id, username, display_name, avatar_url")
         .in("id", contactIds);
 
-      setDirectContacts(profiles?.map(p => ({ ...p, lastMessage: "", unread: 0 })) || []);
+      // Get last message & unread count for each contact
+      const contacts = await Promise.all((profiles || []).map(async (p) => {
+        const { data: lastMsg } = await supabase.from("direct_messages")
+          .select("content, created_at")
+          .or(`and(sender_id.eq.${profile.userId},receiver_id.eq.${p.id}),and(sender_id.eq.${p.id},receiver_id.eq.${profile.userId})`)
+          .order("created_at", { ascending: false }).limit(1).maybeSingle();
+        const { count } = await supabase.from("direct_messages")
+          .select("id", { count: "exact", head: true })
+          .eq("sender_id", p.id).eq("receiver_id", profile.userId).eq("is_read", false);
+        return { ...p, lastMessage: lastMsg?.content || "", unread: count || 0 };
+      }));
+      setDirectContacts(contacts);
     };
     loadContacts();
+    // Poll every 10s for new messages
+    const interval = setInterval(loadContacts, 10000);
+    return () => clearInterval(interval);
   }, [profile.userId]);
+
+  // Session restoration - save/load active conversation
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("ro_active_session");
+      if (saved) {
+        const session = JSON.parse(saved);
+        if (session.messages?.length > 0) {
+          setMessages(session.messages);
+          setMode(session.mode || "ryo");
+        }
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    if (messages.length > 0) {
+      localStorage.setItem("ro_active_session", JSON.stringify({ messages, mode }));
+    }
+  }, [messages, mode]);
 
   // Swipe gesture
   const handleTouchStart = (e: React.TouchEvent) => {
