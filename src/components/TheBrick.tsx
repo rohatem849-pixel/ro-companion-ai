@@ -171,47 +171,47 @@ export default function TheBrick({ isOpen, onClose, profile, isAdmin, adminPassw
     setPosting(false);
   };
 
-  // Optimistic like/dislike - no page reload
+  // Optimistic like/dislike - no page reload, proper toggle
   const handleLike = async (postId: string, isLike: boolean) => {
     if (!profile.userId) return;
     const postIndex = posts.findIndex(p => p.id === postId);
     if (postIndex === -1) return;
     const post = posts[postIndex];
 
-    const alreadyReacted = isLike ? post.userLiked : post.userDisliked;
+    const alreadySame = isLike ? post.userLiked : post.userDisliked;
+    const hadOpposite = isLike ? post.userDisliked : post.userLiked;
 
-    // Optimistic update
-    const updatedPosts = [...posts];
-    if (alreadyReacted) {
-      updatedPosts[postIndex] = {
-        ...post,
-        userLiked: isLike ? false : post.userLiked,
-        userDisliked: !isLike ? false : post.userDisliked,
-        likes_count: isLike ? Math.max(0, post.likes_count - 1) : post.likes_count,
-        dislikes_count: !isLike ? Math.max(0, post.dislikes_count - 1) : post.dislikes_count,
-      };
+    let newLikes = post.likes_count;
+    let newDislikes = post.dislikes_count;
+    let newUserLiked = post.userLiked;
+    let newUserDisliked = post.userDisliked;
+
+    if (alreadySame) {
+      // Remove same reaction (toggle off)
+      if (isLike) { newLikes = Math.max(0, newLikes - 1); newUserLiked = false; }
+      else { newDislikes = Math.max(0, newDislikes - 1); newUserDisliked = false; }
     } else {
-      updatedPosts[postIndex] = {
-        ...post,
-        userLiked: isLike,
-        userDisliked: !isLike ? false : post.userDisliked,
-        likes_count: post.likes_count + (isLike ? 1 : 0) + (post.userLiked ? -1 : 0),
-        dislikes_count: post.dislikes_count + (!isLike ? 1 : 0) + (post.userDisliked ? -1 : 0),
-      };
+      // Add new reaction
+      if (hadOpposite) {
+        // Remove opposite first
+        if (isLike) { newDislikes = Math.max(0, newDislikes - 1); newUserDisliked = false; }
+        else { newLikes = Math.max(0, newLikes - 1); newUserLiked = false; }
+      }
+      if (isLike) { newLikes++; newUserLiked = true; }
+      else { newDislikes++; newUserDisliked = true; }
     }
+
+    const updatedPosts = [...posts];
+    updatedPosts[postIndex] = { ...post, likes_count: newLikes, dislikes_count: newDislikes, userLiked: newUserLiked, userDisliked: newUserDisliked };
     setPosts(updatedPosts);
 
-    // DB update in background
+    // DB update
     try {
       await supabase.from("post_likes").delete().eq("post_id", postId).eq("user_id", profile.userId);
-      if (!alreadyReacted) {
+      if (!alreadySame) {
         await supabase.from("post_likes").insert({ post_id: postId, user_id: profile.userId, is_like: isLike });
       }
-      const newPost = updatedPosts[postIndex];
-      await supabase.from("posts").update({
-        likes_count: Math.max(0, newPost.likes_count),
-        dislikes_count: Math.max(0, newPost.dislikes_count),
-      }).eq("id", postId);
+      await supabase.from("posts").update({ likes_count: newLikes, dislikes_count: newDislikes }).eq("id", postId);
     } catch (e) {
       console.error("Like error:", e);
     }
