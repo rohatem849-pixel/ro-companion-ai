@@ -57,6 +57,9 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
   const [isSaved, setIsSaved] = useState(false);
   const [directContacts, setDirectContacts] = useState<any[]>([]);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [directChatTarget, setDirectChatTarget] = useState<any>(null);
+  const [directMessages, setDirectMessages] = useState<Array<{id: string; content: string; sender_id: string; created_at: string}>>([]);
+  const [directInput, setDirectInput] = useState("");
 
   // Swipe detection for The Brick
   const touchStartX = useRef(0);
