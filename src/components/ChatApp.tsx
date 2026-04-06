@@ -57,6 +57,9 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
   const [isSaved, setIsSaved] = useState(false);
   const [directContacts, setDirectContacts] = useState<any[]>([]);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [directChatTarget, setDirectChatTarget] = useState<any>(null);
+  const [directMessages, setDirectMessages] = useState<Array<{id: string; content: string; sender_id: string; created_at: string}>>([]);
+  const [directInput, setDirectInput] = useState("");
 
   // Swipe detection for The Brick
   const touchStartX = useRef(0);
@@ -93,7 +96,7 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
     return () => { cancelled = true; };
   }, [profile.importantNotes]);
 
-  // Load direct contacts
+  // Load direct contacts + last messages
   useEffect(() => {
     if (!profile.userId) return;
     const loadContacts = async () => {
@@ -102,7 +105,7 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
         .select("*")
         .or(`sender_id.eq.${profile.userId},receiver_id.eq.${profile.userId}`)
         .eq("status", "accepted");
-      if (!data || data.length === 0) return;
+      if (!data || data.length === 0) { setDirectContacts([]); return; }
 
       const contactIds = data.map(r => r.sender_id === profile.userId ? r.receiver_id : r.sender_id);
       const { data: profiles } = await supabase
@@ -110,10 +113,44 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
         .select("id, username, display_name, avatar_url")
         .in("id", contactIds);
 
-      setDirectContacts(profiles?.map(p => ({ ...p, lastMessage: "", unread: 0 })) || []);
+      // Get last message & unread count for each contact
+      const contacts = await Promise.all((profiles || []).map(async (p) => {
+        const { data: lastMsg } = await supabase.from("direct_messages")
+          .select("content, created_at")
+          .or(`and(sender_id.eq.${profile.userId},receiver_id.eq.${p.id}),and(sender_id.eq.${p.id},receiver_id.eq.${profile.userId})`)
+          .order("created_at", { ascending: false }).limit(1).maybeSingle();
+        const { count } = await supabase.from("direct_messages")
+          .select("id", { count: "exact", head: true })
+          .eq("sender_id", p.id).eq("receiver_id", profile.userId).eq("is_read", false);
+        return { ...p, lastMessage: lastMsg?.content || "", unread: count || 0 };
+      }));
+      setDirectContacts(contacts);
     };
     loadContacts();
+    // Poll every 10s for new messages
+    const interval = setInterval(loadContacts, 10000);
+    return () => clearInterval(interval);
   }, [profile.userId]);
+
+  // Session restoration - save/load active conversation
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("ro_active_session");
+      if (saved) {
+        const session = JSON.parse(saved);
+        if (session.messages?.length > 0) {
+          setMessages(session.messages);
+          setMode(session.mode || "ryo");
+        }
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    if (messages.length > 0) {
+      localStorage.setItem("ro_active_session", JSON.stringify({ messages, mode }));
+    }
+  }, [messages, mode]);
 
   // Swipe gesture
   const handleTouchStart = (e: React.TouchEvent) => {
@@ -153,7 +190,6 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
 
   const switchMode = (newMode: "lite" | "ryo") => {
     if (newMode === mode) return;
-    setMessages([]);
     setMode(newMode);
     setShowModelSelector(false);
   };
@@ -173,6 +209,7 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
     setStoppedResponse(false);
     setIsSaved(false);
     setShowClearConfirm(false);
+    localStorage.removeItem("ro_active_session");
   };
 
   const saveAndClear = async () => {
@@ -207,7 +244,56 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
     setMessages(msgs);
     setMode(convMode as "lite" | "ryo");
     setIsSaved(true);
+    setDirectChatTarget(null);
   };
+
+  // Direct chat functions
+  const openDirectChat = async (contact: any) => {
+    setDirectChatTarget(contact);
+    setDirectMessages([]);
+    // Load chat history
+    if (profile.userId && contact.id) {
+      const { data } = await supabase.from("direct_messages")
+        .select("id, content, sender_id, created_at")
+        .or(`and(sender_id.eq.${profile.userId},receiver_id.eq.${contact.id}),and(sender_id.eq.${contact.id},receiver_id.eq.${profile.userId})`)
+        .order("created_at", { ascending: true }).limit(100);
+      if (data) setDirectMessages(data);
+      // Mark as read
+      await supabase.from("direct_messages").update({ is_read: true })
+        .eq("sender_id", contact.id).eq("receiver_id", profile.userId).eq("is_read", false);
+    }
+  };
+
+  const sendDirectMessage = async () => {
+    if (!directInput.trim() || !directChatTarget || !profile.userId) return;
+    const content = directInput.trim();
+    const tempId = crypto.randomUUID();
+    // Optimistic
+    setDirectMessages(prev => [...prev, { id: tempId, content, sender_id: profile.userId, created_at: new Date().toISOString() }]);
+    setDirectInput("");
+    try {
+      await supabase.from("direct_messages").insert({
+        sender_id: profile.userId,
+        receiver_id: directChatTarget.id,
+        content,
+      });
+    } catch (e) { console.error("DM send error:", e); }
+  };
+
+  // Poll direct messages when in a direct chat
+  useEffect(() => {
+    if (!directChatTarget || !profile.userId) return;
+    const poll = setInterval(async () => {
+      const { data } = await supabase.from("direct_messages")
+        .select("id, content, sender_id, created_at")
+        .or(`and(sender_id.eq.${profile.userId},receiver_id.eq.${directChatTarget.id}),and(sender_id.eq.${directChatTarget.id},receiver_id.eq.${profile.userId})`)
+        .order("created_at", { ascending: true }).limit(100);
+      if (data) setDirectMessages(data);
+      await supabase.from("direct_messages").update({ is_read: true })
+        .eq("sender_id", directChatTarget.id).eq("receiver_id", profile.userId).eq("is_read", false);
+    }, 3000);
+    return () => clearInterval(poll);
+  }, [directChatTarget, profile.userId]);
 
   // Voice recording - speech to text in input field
   const startRecording = () => {
@@ -247,15 +333,33 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
     setRecordingText("");
   };
 
-  // Image handling
-  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Image handling with compression
+  const compressImage = (dataUrl: string, maxWidth = 800): Promise<string> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const ratio = Math.min(maxWidth / img.width, maxWidth / img.height, 1);
+        canvas.width = img.width * ratio;
+        canvas.height = img.height * ratio;
+        const ctx = canvas.getContext("2d")!;
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/jpeg", 0.7));
+      };
+      img.onerror = () => resolve(dataUrl);
+      img.src = dataUrl;
+    });
+  };
+
+  const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       const base64 = reader.result as string;
-      setImagePreview(base64);
-      setImageBase64Data(base64);
+      const compressed = await compressImage(base64);
+      setImagePreview(compressed);
+      setImageBase64Data(compressed);
     };
     reader.readAsDataURL(file);
     e.target.value = "";
@@ -863,7 +967,7 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
         onLoadConversation={loadConversation}
         onOpenSettings={() => setShowSettings(true)}
         directContacts={directContacts}
-        onOpenDirectChat={() => {}}
+        onOpenDirectChat={(contact) => { openDirectChat(contact); setShowSidebar(false); }}
         onOpenBrick={() => { setShowSidebar(false); setShowBrick(true); }}
       />
 
@@ -878,6 +982,72 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
             adminPassword={adminPassword}
             initialContent={brickContent}
           />
+        )}
+      </AnimatePresence>
+
+      {/* Direct Chat Overlay */}
+      <AnimatePresence>
+        {directChatTarget && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[130] bg-background flex flex-col"
+            dir="rtl"
+          >
+            <header className="flex items-center justify-between px-4 py-3 border-b bg-card">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl overflow-hidden bg-muted flex items-center justify-center">
+                  {directChatTarget.avatar_url ? (
+                    <img src={directChatTarget.avatar_url} alt="" className="w-full h-full object-cover" />
+                  ) : <span className="text-sm">👤</span>}
+                </div>
+                <div>
+                  <p className="text-sm font-bold">@{directChatTarget.username}</p>
+                  <p className="text-[10px] text-muted-foreground">{directChatTarget.display_name}</p>
+                </div>
+              </div>
+              <button onClick={() => setDirectChatTarget(null)} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary">
+                <X className="w-5 h-5" />
+              </button>
+            </header>
+            <main className="flex-1 overflow-y-auto px-3 py-3 space-y-2">
+              {directMessages.length === 0 && (
+                <p className="text-center text-sm text-muted-foreground py-12">ابدأ المحادثة 💬</p>
+              )}
+              {directMessages.map(msg => (
+                <div key={msg.id} className={`flex ${msg.sender_id === profile.userId ? "justify-start" : "justify-end"}`}>
+                  <div className={`max-w-[75%] rounded-2xl px-3.5 py-2 text-sm ${
+                    msg.sender_id === profile.userId
+                      ? "bg-primary text-primary-foreground rounded-br-md"
+                      : "bg-secondary text-foreground rounded-bl-md"
+                  }`}>
+                    <p>{msg.content}</p>
+                    <p className="text-[9px] opacity-60 mt-0.5">{new Date(msg.created_at).toLocaleTimeString("ar", { hour: "2-digit", minute: "2-digit" })}</p>
+                  </div>
+                </div>
+              ))}
+            </main>
+            <div className="px-3 pb-3 pt-1.5">
+              <div className="flex items-center gap-2 bg-secondary rounded-2xl border px-3 py-2">
+                <textarea
+                  value={directInput}
+                  onChange={e => setDirectInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendDirectMessage(); } }}
+                  placeholder="اكتب رسالة..."
+                  rows={1}
+                  className="flex-1 bg-transparent outline-none text-sm resize-none placeholder:text-muted-foreground/60"
+                />
+                <button
+                  onClick={sendDirectMessage}
+                  disabled={!directInput.trim()}
+                  className="ro-send-btn-circle disabled:opacity-30 flex-shrink-0"
+                >
+                  <ArrowUp className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
 
