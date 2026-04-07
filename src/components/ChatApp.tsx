@@ -1081,68 +1081,82 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
         )}
       </AnimatePresence>
 
-      {/* Direct Chat Overlay */}
+      {/* Messaging Hub */}
       <AnimatePresence>
-        {directChatTarget && (
+        {showMessaging && (
+          <MessagingHub
+            isOpen={showMessaging}
+            onClose={() => setShowMessaging(false)}
+            profile={profile}
+            isAdmin={isAdmin}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Notifications Panel */}
+      <AnimatePresence>
+        {showNotifPanel && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[130] bg-background flex flex-col"
+            className="fixed inset-0 z-[160] flex flex-col bg-background"
             dir="rtl"
           >
-            <header className="flex items-center justify-between px-4 py-3 border-b bg-card">
+            <header className="flex items-center justify-between px-3 py-2.5 border-b bg-card">
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl overflow-hidden bg-muted flex items-center justify-center">
-                  {directChatTarget.avatar_url ? (
-                    <img src={directChatTarget.avatar_url} alt="" className="w-full h-full object-cover" />
-                  ) : <span className="text-sm">👤</span>}
-                </div>
-                <div>
-                  <p className="text-sm font-bold">@{directChatTarget.username}</p>
-                  <p className="text-[10px] text-muted-foreground">{directChatTarget.display_name}</p>
-                </div>
+                <Bell className="w-5 h-5 text-primary" />
+                <span className="font-bold text-sm">الإشعارات</span>
               </div>
-              <button onClick={() => setDirectChatTarget(null)} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary">
+              <button onClick={() => setShowNotifPanel(false)} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground">
                 <X className="w-5 h-5" />
               </button>
             </header>
-            <main className="flex-1 overflow-y-auto px-3 py-3 space-y-2">
-              {directMessages.length === 0 && (
-                <p className="text-center text-sm text-muted-foreground py-12">ابدأ المحادثة 💬</p>
-              )}
-              {directMessages.map(msg => (
-                <div key={msg.id} className={`flex ${msg.sender_id === profile.userId ? "justify-start" : "justify-end"}`}>
-                  <div className={`max-w-[75%] rounded-2xl px-3.5 py-2 text-sm ${
-                    msg.sender_id === profile.userId
-                      ? "bg-primary text-primary-foreground rounded-br-md"
-                      : "bg-secondary text-foreground rounded-bl-md"
-                  }`}>
-                    <p>{msg.content}</p>
-                    <p className="text-[9px] opacity-60 mt-0.5">{new Date(msg.created_at).toLocaleTimeString("ar", { hour: "2-digit", minute: "2-digit" })}</p>
+            <main className="flex-1 overflow-y-auto p-3 space-y-1.5">
+              {notifications.length === 0 ? (
+                <p className="text-center text-sm text-muted-foreground py-12">لا إشعارات</p>
+              ) : notifications.map(n => (
+                <div key={n.id} className={`p-3 rounded-xl border transition-all ${n.is_read ? "bg-secondary/30" : "bg-secondary/70 border-primary/20"}`}>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm">{n.type === "comment" ? "💬" : n.type === "like" ? "❤️" : n.type === "message_request" ? "📩" : n.type === "follow_post" ? "📢" : "🔔"}</span>
+                    <p className="text-sm font-medium flex-1">{n.title}</p>
+                    <span className="text-[10px] text-muted-foreground">{new Date(n.created_at).toLocaleTimeString("ar", { hour: "2-digit", minute: "2-digit" })}</span>
                   </div>
+                  <p className="text-xs text-muted-foreground mt-1 mr-6">{n.body}</p>
                 </div>
               ))}
             </main>
-            <div className="px-3 pb-3 pt-1.5">
-              <div className="flex items-center gap-2 bg-secondary rounded-2xl border px-3 py-2">
-                <textarea
-                  value={directInput}
-                  onChange={e => setDirectInput(e.target.value)}
-                  onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendDirectMessage(); } }}
-                  placeholder="اكتب رسالة..."
-                  rows={1}
-                  className="flex-1 bg-transparent outline-none text-sm resize-none placeholder:text-muted-foreground/60"
-                />
-                <button
-                  onClick={sendDirectMessage}
-                  disabled={!directInput.trim()}
-                  className="ro-send-btn-circle disabled:opacity-30 flex-shrink-0"
-                >
-                  <ArrowUp className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Force username dialog */}
+      <AnimatePresence>
+        {showUsernameForce && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[200] flex items-center justify-center p-4"
+            style={{ background: "hsla(var(--background) / 0.9)", backdropFilter: "blur(8px)" }}
+          >
+            <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }}
+              className="bg-card rounded-2xl border p-6 max-w-sm w-full shadow-2xl text-center space-y-4" dir="rtl">
+              <img src={roLogo} alt="Ro" className="w-12 h-12 rounded-xl mx-auto" />
+              <h3 className="text-lg font-bold">اختر اسم مستخدم 🆔</h3>
+              <p className="text-sm text-muted-foreground">يجب عليك اختيار اسم مستخدم فريد لاستخدام الموقع</p>
+              <input
+                value={forceUsername}
+                onChange={e => { setForceUsername(e.target.value); setForceUsernameError(""); }}
+                placeholder="مثال: ahmed_123"
+                className="w-full bg-secondary rounded-xl border px-4 py-3 text-sm outline-none focus:border-primary text-center"
+                dir="ltr"
+              />
+              {forceUsernameError && <p className="text-xs text-destructive">{forceUsernameError}</p>}
+              <button onClick={saveForceUsername} className="w-full py-3 rounded-xl bg-primary text-primary-foreground text-sm font-bold">
+                تأكيد ✅
+              </button>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
