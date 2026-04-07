@@ -347,6 +347,13 @@ export default function TheBrick({ isOpen, onClose, profile, isAdmin, adminPassw
       await supabase.from("posts").update({
         comments_count: (selectedPost.comments_count || 0) + 1,
       }).eq("id", selectedPost.id);
+      // Notify post owner
+      if (selectedPost.user_id !== profile.userId) {
+        await supabase.from("notifications").insert({
+          user_id: selectedPost.user_id, type: "comment", title: "تعليق جديد",
+          body: `@${profile.username} علّق على منشورك`, link_id: selectedPost.id,
+        });
+      }
     } catch (e) {
       console.error("Comment error:", e);
     }
