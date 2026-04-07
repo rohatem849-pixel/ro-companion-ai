@@ -54,6 +54,7 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
   const [notificationCount, setNotificationCount] = useState(0);
   const [showSidebar, setShowSidebar] = useState(false);
   const [showBrick, setShowBrick] = useState(false);
+  const [showMessaging, setShowMessaging] = useState(false);
   const [brickContent, setBrickContent] = useState("");
   const [isSaved, setIsSaved] = useState(false);
   const [directContacts, setDirectContacts] = useState<any[]>([]);
@@ -61,6 +62,13 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
   const [directChatTarget, setDirectChatTarget] = useState<any>(null);
   const [directMessages, setDirectMessages] = useState<Array<{id: string; content: string; sender_id: string; created_at: string}>>([]);
   const [directInput, setDirectInput] = useState("");
+  const [msgUnreadCount, setMsgUnreadCount] = useState(0);
+  const [notifUnreadCount, setNotifUnreadCount] = useState(0);
+  const [showNotifPanel, setShowNotifPanel] = useState(false);
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [showUsernameForce, setShowUsernameForce] = useState(false);
+  const [forceUsername, setForceUsername] = useState("");
+  const [forceUsernameError, setForceUsernameError] = useState("");
 
   // Swipe detection for The Brick
   const touchStartX = useRef(0);
