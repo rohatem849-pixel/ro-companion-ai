@@ -105,6 +105,69 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
     return () => { cancelled = true; };
   }, [profile.importantNotes]);
 
+  // Force username if not set
+  useEffect(() => {
+    if (profile.onboardingDone && !profile.username) {
+      setShowUsernameForce(true);
+    }
+  }, [profile.onboardingDone, profile.username]);
+
+  // Load unread message count
+  useEffect(() => {
+    if (!profile.userId) return;
+    const loadUnread = async () => {
+      const { count } = await supabase.from("direct_messages")
+        .select("id", { count: "exact", head: true })
+        .eq("receiver_id", profile.userId).eq("is_read", false);
+      setMsgUnreadCount(count || 0);
+
+      const { count: reqCount } = await supabase.from("message_requests")
+        .select("id", { count: "exact", head: true })
+        .eq("receiver_id", profile.userId).eq("status", "pending");
+      setMsgUnreadCount(prev => (count || 0) + (reqCount || 0));
+    };
+    loadUnread();
+    const interval = setInterval(loadUnread, 10000);
+    return () => clearInterval(interval);
+  }, [profile.userId]);
+
+  // Load notifications count
+  useEffect(() => {
+    if (!profile.userId) return;
+    const loadNotifs = async () => {
+      const { count } = await supabase.from("notifications")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", profile.userId).eq("is_read", false);
+      setNotifUnreadCount(count || 0);
+    };
+    loadNotifs();
+    const interval = setInterval(loadNotifs, 15000);
+    return () => clearInterval(interval);
+  }, [profile.userId]);
+
+  const loadNotifications = async () => {
+    if (!profile.userId) return;
+    const { data } = await supabase.from("notifications")
+      .select("*").eq("user_id", profile.userId)
+      .order("created_at", { ascending: false }).limit(30);
+    if (data) setNotifications(data);
+    // Mark as read
+    await supabase.from("notifications").update({ is_read: true })
+      .eq("user_id", profile.userId).eq("is_read", false);
+    setNotifUnreadCount(0);
+  };
+
+  const saveForceUsername = async () => {
+    const username = forceUsername.trim().toLowerCase();
+    if (!username || username.length < 3) { setForceUsernameError("3 أحرف على الأقل"); return; }
+    if (!/^[a-z0-9._]+$/.test(username)) { setForceUsernameError("حروف إنجليزية وأرقام فقط"); return; }
+    const { data: existing } = await supabase.from("profiles").select("id").ilike("username", username).neq("id", profile.userId).maybeSingle();
+    if (existing) { setForceUsernameError("اسم المستخدم مأخوذ"); return; }
+    await supabase.from("profiles").update({ username }).eq("id", profile.userId);
+    onProfileUpdate({ ...profile, username });
+    setShowUsernameForce(false);
+  };
+
   // Load direct contacts + last messages
   useEffect(() => {
     if (!profile.userId) return;
