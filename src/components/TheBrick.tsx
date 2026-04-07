@@ -272,9 +272,17 @@ export default function TheBrick({ isOpen, onClose, profile, isAdmin, adminPassw
     setConfirmAction(null);
   };
 
-  const copyLink = (postId: string) => {
+  const copyLink = async (postId: string) => {
     const url = `${window.location.origin}/?post=${postId}`;
-    navigator.clipboard.writeText(url);
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: "منشور من The Brick 🧱", url });
+      } else {
+        await navigator.clipboard.writeText(url);
+      }
+    } catch {
+      try { await navigator.clipboard.writeText(url); } catch {}
+    }
   };
 
   const loadComments = async (postId: string) => {
