@@ -1,12 +1,13 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowUp, Square, Moon, Sun, ListTodo, Globe, Mic, X, Search, Trash2, Plus, Camera, Image as ImageIcon, Check, Menu, Bookmark } from "lucide-react";
+import { ArrowUp, Square, Moon, Sun, ListTodo, Globe, Mic, X, Search, Trash2, Plus, Camera, Image as ImageIcon, Check, Menu, Bookmark, MessageCircle, Bell } from "lucide-react";
 import ChatMessage from "./ChatMessage";
 import TasksPanel from "./TasksPanel";
 import SettingsPanel from "./SettingsPanel";
 import NewsNotificationsPanel from "./NewsNotificationsPanel";
 import AppSidebar from "./AppSidebar";
 import TheBrick from "./TheBrick";
+import MessagingHub from "./MessagingHub";
 import { UserProfile, Task, getTasks, saveTasks, buildSystemPrompt } from "@/lib/userProfile";
 import { streamChat, ChatMessage as AIChatMessage, checkAdminPassword, saveAdminNote } from "@/lib/aiApi";
 import { searchWeb, needsWebSearch, SearchResult } from "@/lib/webSearch";
@@ -53,6 +54,7 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
   const [notificationCount, setNotificationCount] = useState(0);
   const [showSidebar, setShowSidebar] = useState(false);
   const [showBrick, setShowBrick] = useState(false);
+  const [showMessaging, setShowMessaging] = useState(false);
   const [brickContent, setBrickContent] = useState("");
   const [isSaved, setIsSaved] = useState(false);
   const [directContacts, setDirectContacts] = useState<any[]>([]);
@@ -60,6 +62,13 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
   const [directChatTarget, setDirectChatTarget] = useState<any>(null);
   const [directMessages, setDirectMessages] = useState<Array<{id: string; content: string; sender_id: string; created_at: string}>>([]);
   const [directInput, setDirectInput] = useState("");
+  const [msgUnreadCount, setMsgUnreadCount] = useState(0);
+  const [notifUnreadCount, setNotifUnreadCount] = useState(0);
+  const [showNotifPanel, setShowNotifPanel] = useState(false);
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [showUsernameForce, setShowUsernameForce] = useState(false);
+  const [forceUsername, setForceUsername] = useState("");
+  const [forceUsernameError, setForceUsernameError] = useState("");
 
   // Swipe detection for The Brick
   const touchStartX = useRef(0);
@@ -95,6 +104,69 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
     verify();
     return () => { cancelled = true; };
   }, [profile.importantNotes]);
+
+  // Force username if not set
+  useEffect(() => {
+    if (profile.onboardingDone && !profile.username) {
+      setShowUsernameForce(true);
+    }
+  }, [profile.onboardingDone, profile.username]);
+
+  // Load unread message count
+  useEffect(() => {
+    if (!profile.userId) return;
+    const loadUnread = async () => {
+      const { count } = await supabase.from("direct_messages")
+        .select("id", { count: "exact", head: true })
+        .eq("receiver_id", profile.userId).eq("is_read", false);
+      setMsgUnreadCount(count || 0);
+
+      const { count: reqCount } = await supabase.from("message_requests")
+        .select("id", { count: "exact", head: true })
+        .eq("receiver_id", profile.userId).eq("status", "pending");
+      setMsgUnreadCount(prev => (count || 0) + (reqCount || 0));
+    };
+    loadUnread();
+    const interval = setInterval(loadUnread, 10000);
+    return () => clearInterval(interval);
+  }, [profile.userId]);
+
+  // Load notifications count
+  useEffect(() => {
+    if (!profile.userId) return;
+    const loadNotifs = async () => {
+      const { count } = await supabase.from("notifications")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", profile.userId).eq("is_read", false);
+      setNotifUnreadCount(count || 0);
+    };
+    loadNotifs();
+    const interval = setInterval(loadNotifs, 15000);
+    return () => clearInterval(interval);
+  }, [profile.userId]);
+
+  const loadNotifications = async () => {
+    if (!profile.userId) return;
+    const { data } = await supabase.from("notifications")
+      .select("*").eq("user_id", profile.userId)
+      .order("created_at", { ascending: false }).limit(30);
+    if (data) setNotifications(data);
+    // Mark as read
+    await supabase.from("notifications").update({ is_read: true })
+      .eq("user_id", profile.userId).eq("is_read", false);
+    setNotifUnreadCount(0);
+  };
+
+  const saveForceUsername = async () => {
+    const username = forceUsername.trim().toLowerCase();
+    if (!username || username.length < 3) { setForceUsernameError("3 أحرف على الأقل"); return; }
+    if (!/^[a-z0-9._]+$/.test(username)) { setForceUsernameError("حروف إنجليزية وأرقام فقط"); return; }
+    const { data: existing } = await supabase.from("profiles").select("id").ilike("username", username).neq("id", profile.userId).maybeSingle();
+    if (existing) { setForceUsernameError("اسم المستخدم مأخوذ"); return; }
+    await supabase.from("profiles").update({ username }).eq("id", profile.userId);
+    onProfileUpdate({ ...profile, username });
+    setShowUsernameForce(false);
+  };
 
   // Load direct contacts + last messages
   useEffect(() => {
@@ -619,6 +691,18 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
           <button onClick={() => setShowTasks(!showTasks)} className="p-1.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-secondary transition-all">
             <ListTodo className="w-3.5 h-3.5" />
           </button>
+          {/* Notifications bell */}
+          <button
+            onClick={() => { setShowNotifPanel(!showNotifPanel); if (!showNotifPanel) loadNotifications(); }}
+            className="p-1.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-secondary transition-all relative"
+          >
+            <Bell className="w-3.5 h-3.5" />
+            {notifUnreadCount > 0 && (
+              <span className="absolute -top-0.5 -left-0.5 w-3.5 h-3.5 rounded-full bg-destructive text-[8px] text-destructive-foreground flex items-center justify-center font-bold">
+                {notifUnreadCount > 9 ? "9+" : notifUnreadCount}
+              </span>
+            )}
+          </button>
           <button
             onClick={() => setShowGlobePanel(!showGlobePanel)}
             className="p-1.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-secondary transition-all relative"
@@ -627,6 +711,18 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
             {notificationCount > 0 && (
               <span className="absolute -top-0.5 -left-0.5 w-3.5 h-3.5 rounded-full bg-destructive text-[8px] text-destructive-foreground flex items-center justify-center font-bold">
                 {notificationCount}
+              </span>
+            )}
+          </button>
+          {/* Messaging hub */}
+          <button
+            onClick={() => setShowMessaging(true)}
+            className="p-1.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-secondary transition-all relative"
+          >
+            <MessageCircle className="w-3.5 h-3.5" />
+            {msgUnreadCount > 0 && (
+              <span className="absolute -top-0.5 -left-0.5 w-3.5 h-3.5 rounded-full bg-destructive text-[8px] text-destructive-foreground flex items-center justify-center font-bold">
+                {msgUnreadCount > 9 ? "9+" : msgUnreadCount}
               </span>
             )}
           </button>
@@ -985,68 +1081,82 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
         )}
       </AnimatePresence>
 
-      {/* Direct Chat Overlay */}
+      {/* Messaging Hub */}
       <AnimatePresence>
-        {directChatTarget && (
+        {showMessaging && (
+          <MessagingHub
+            isOpen={showMessaging}
+            onClose={() => setShowMessaging(false)}
+            profile={profile}
+            isAdmin={isAdmin}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Notifications Panel */}
+      <AnimatePresence>
+        {showNotifPanel && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[130] bg-background flex flex-col"
+            className="fixed inset-0 z-[160] flex flex-col bg-background"
             dir="rtl"
           >
-            <header className="flex items-center justify-between px-4 py-3 border-b bg-card">
+            <header className="flex items-center justify-between px-3 py-2.5 border-b bg-card">
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl overflow-hidden bg-muted flex items-center justify-center">
-                  {directChatTarget.avatar_url ? (
-                    <img src={directChatTarget.avatar_url} alt="" className="w-full h-full object-cover" />
-                  ) : <span className="text-sm">👤</span>}
-                </div>
-                <div>
-                  <p className="text-sm font-bold">@{directChatTarget.username}</p>
-                  <p className="text-[10px] text-muted-foreground">{directChatTarget.display_name}</p>
-                </div>
+                <Bell className="w-5 h-5 text-primary" />
+                <span className="font-bold text-sm">الإشعارات</span>
               </div>
-              <button onClick={() => setDirectChatTarget(null)} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary">
+              <button onClick={() => setShowNotifPanel(false)} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground">
                 <X className="w-5 h-5" />
               </button>
             </header>
-            <main className="flex-1 overflow-y-auto px-3 py-3 space-y-2">
-              {directMessages.length === 0 && (
-                <p className="text-center text-sm text-muted-foreground py-12">ابدأ المحادثة 💬</p>
-              )}
-              {directMessages.map(msg => (
-                <div key={msg.id} className={`flex ${msg.sender_id === profile.userId ? "justify-start" : "justify-end"}`}>
-                  <div className={`max-w-[75%] rounded-2xl px-3.5 py-2 text-sm ${
-                    msg.sender_id === profile.userId
-                      ? "bg-primary text-primary-foreground rounded-br-md"
-                      : "bg-secondary text-foreground rounded-bl-md"
-                  }`}>
-                    <p>{msg.content}</p>
-                    <p className="text-[9px] opacity-60 mt-0.5">{new Date(msg.created_at).toLocaleTimeString("ar", { hour: "2-digit", minute: "2-digit" })}</p>
+            <main className="flex-1 overflow-y-auto p-3 space-y-1.5">
+              {notifications.length === 0 ? (
+                <p className="text-center text-sm text-muted-foreground py-12">لا إشعارات</p>
+              ) : notifications.map(n => (
+                <div key={n.id} className={`p-3 rounded-xl border transition-all ${n.is_read ? "bg-secondary/30" : "bg-secondary/70 border-primary/20"}`}>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm">{n.type === "comment" ? "💬" : n.type === "like" ? "❤️" : n.type === "message_request" ? "📩" : n.type === "follow_post" ? "📢" : "🔔"}</span>
+                    <p className="text-sm font-medium flex-1">{n.title}</p>
+                    <span className="text-[10px] text-muted-foreground">{new Date(n.created_at).toLocaleTimeString("ar", { hour: "2-digit", minute: "2-digit" })}</span>
                   </div>
+                  <p className="text-xs text-muted-foreground mt-1 mr-6">{n.body}</p>
                 </div>
               ))}
             </main>
-            <div className="px-3 pb-3 pt-1.5">
-              <div className="flex items-center gap-2 bg-secondary rounded-2xl border px-3 py-2">
-                <textarea
-                  value={directInput}
-                  onChange={e => setDirectInput(e.target.value)}
-                  onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendDirectMessage(); } }}
-                  placeholder="اكتب رسالة..."
-                  rows={1}
-                  className="flex-1 bg-transparent outline-none text-sm resize-none placeholder:text-muted-foreground/60"
-                />
-                <button
-                  onClick={sendDirectMessage}
-                  disabled={!directInput.trim()}
-                  className="ro-send-btn-circle disabled:opacity-30 flex-shrink-0"
-                >
-                  <ArrowUp className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Force username dialog */}
+      <AnimatePresence>
+        {showUsernameForce && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[200] flex items-center justify-center p-4"
+            style={{ background: "hsla(var(--background) / 0.9)", backdropFilter: "blur(8px)" }}
+          >
+            <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }}
+              className="bg-card rounded-2xl border p-6 max-w-sm w-full shadow-2xl text-center space-y-4" dir="rtl">
+              <img src={roLogo} alt="Ro" className="w-12 h-12 rounded-xl mx-auto" />
+              <h3 className="text-lg font-bold">اختر اسم مستخدم 🆔</h3>
+              <p className="text-sm text-muted-foreground">يجب عليك اختيار اسم مستخدم فريد لاستخدام الموقع</p>
+              <input
+                value={forceUsername}
+                onChange={e => { setForceUsername(e.target.value); setForceUsernameError(""); }}
+                placeholder="مثال: ahmed_123"
+                className="w-full bg-secondary rounded-xl border px-4 py-3 text-sm outline-none focus:border-primary text-center"
+                dir="ltr"
+              />
+              {forceUsernameError && <p className="text-xs text-destructive">{forceUsernameError}</p>}
+              <button onClick={saveForceUsername} className="w-full py-3 rounded-xl bg-primary text-primary-foreground text-sm font-bold">
+                تأكيد ✅
+              </button>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>

@@ -14,6 +14,10 @@ export default function Index() {
     if (!p.onboardingDone) {
       setShowOnboarding(true);
     }
+    // Request push notification permission
+    if ("Notification" in window && Notification.permission === "default") {
+      setTimeout(() => Notification.requestPermission(), 3000);
+    }
   }, []);
 
   const handleOnboardingComplete = (p: UserProfile) => {
