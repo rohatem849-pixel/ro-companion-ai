@@ -691,6 +691,18 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
           <button onClick={() => setShowTasks(!showTasks)} className="p-1.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-secondary transition-all">
             <ListTodo className="w-3.5 h-3.5" />
           </button>
+          {/* Notifications bell */}
+          <button
+            onClick={() => { setShowNotifPanel(!showNotifPanel); if (!showNotifPanel) loadNotifications(); }}
+            className="p-1.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-secondary transition-all relative"
+          >
+            <Bell className="w-3.5 h-3.5" />
+            {notifUnreadCount > 0 && (
+              <span className="absolute -top-0.5 -left-0.5 w-3.5 h-3.5 rounded-full bg-destructive text-[8px] text-destructive-foreground flex items-center justify-center font-bold">
+                {notifUnreadCount > 9 ? "9+" : notifUnreadCount}
+              </span>
+            )}
+          </button>
           <button
             onClick={() => setShowGlobePanel(!showGlobePanel)}
             className="p-1.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-secondary transition-all relative"
@@ -699,6 +711,18 @@ export default function ChatApp({ profile, onProfileUpdate }: Props) {
             {notificationCount > 0 && (
               <span className="absolute -top-0.5 -left-0.5 w-3.5 h-3.5 rounded-full bg-destructive text-[8px] text-destructive-foreground flex items-center justify-center font-bold">
                 {notificationCount}
+              </span>
+            )}
+          </button>
+          {/* Messaging hub */}
+          <button
+            onClick={() => setShowMessaging(true)}
+            className="p-1.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-secondary transition-all relative"
+          >
+            <MessageCircle className="w-3.5 h-3.5" />
+            {msgUnreadCount > 0 && (
+              <span className="absolute -top-0.5 -left-0.5 w-3.5 h-3.5 rounded-full bg-destructive text-[8px] text-destructive-foreground flex items-center justify-center font-bold">
+                {msgUnreadCount > 9 ? "9+" : msgUnreadCount}
               </span>
             )}
           </button>
