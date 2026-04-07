@@ -145,30 +145,66 @@ export type Database = {
           },
         ]
       }
+      deleted_conversations: {
+        Row: {
+          contact_id: string
+          deleted_at: string
+          expires_at: string
+          id: string
+          messages: Json
+          user_id: string
+        }
+        Insert: {
+          contact_id: string
+          deleted_at?: string
+          expires_at?: string
+          id?: string
+          messages?: Json
+          user_id: string
+        }
+        Update: {
+          contact_id?: string
+          deleted_at?: string
+          expires_at?: string
+          id?: string
+          messages?: Json
+          user_id?: string
+        }
+        Relationships: []
+      }
       direct_messages: {
         Row: {
           content: string
           created_at: string
           id: string
           is_read: boolean
+          media_type: string | null
+          media_url: string | null
           receiver_id: string
           sender_id: string
+          status: string
         }
         Insert: {
           content: string
           created_at?: string
           id?: string
           is_read?: boolean
+          media_type?: string | null
+          media_url?: string | null
           receiver_id: string
           sender_id: string
+          status?: string
         }
         Update: {
           content?: string
           created_at?: string
           id?: string
           is_read?: boolean
+          media_type?: string | null
+          media_url?: string | null
           receiver_id?: string
           sender_id?: string
+          status?: string
         }
         Relationships: [
           {
@@ -261,6 +297,39 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      notifications: {
+        Row: {
+          body: string
+          created_at: string
+          id: string
+          is_read: boolean
+          link_id: string | null
+          title: string
+          type: string
+          user_id: string
+        }
+        Insert: {
+          body?: string
+          created_at?: string
+          id?: string
+          is_read?: boolean
+          link_id?: string | null
+          title?: string
+          type: string
+          user_id: string
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          id?: string
+          is_read?: boolean
+          link_id?: string | null
+          title?: string
+          type?: string
+          user_id?: string
+        }
+        Relationships: []
       }
       post_comments: {
         Row: {
@@ -401,6 +470,7 @@ export type Database = {
           notifications_enabled: boolean | null
           school_level: string | null
           username: string
+          visible_in_search: boolean
           work: string | null
         }
         Insert: {
@@ -416,6 +486,7 @@ export type Database = {
           notifications_enabled?: boolean | null
           school_level?: string | null
           username: string
+          visible_in_search?: boolean
           work?: string | null
         }
         Update: {
@@ -431,6 +502,7 @@ export type Database = {
           notifications_enabled?: boolean | null
           school_level?: string | null
           username?: string
+          visible_in_search?: boolean
           work?: string | null
         }
         Relationships: []
