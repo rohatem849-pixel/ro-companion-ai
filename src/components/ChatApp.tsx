@@ -1,12 +1,13 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowUp, Square, Moon, Sun, ListTodo, Globe, Mic, X, Search, Trash2, Plus, Camera, Image as ImageIcon, Check, Menu, Bookmark } from "lucide-react";
+import { ArrowUp, Square, Moon, Sun, ListTodo, Globe, Mic, X, Search, Trash2, Plus, Camera, Image as ImageIcon, Check, Menu, Bookmark, MessageCircle, Bell } from "lucide-react";
 import ChatMessage from "./ChatMessage";
 import TasksPanel from "./TasksPanel";
 import SettingsPanel from "./SettingsPanel";
 import NewsNotificationsPanel from "./NewsNotificationsPanel";
 import AppSidebar from "./AppSidebar";
 import TheBrick from "./TheBrick";
+import MessagingHub from "./MessagingHub";
 import { UserProfile, Task, getTasks, saveTasks, buildSystemPrompt } from "@/lib/userProfile";
 import { streamChat, ChatMessage as AIChatMessage, checkAdminPassword, saveAdminNote } from "@/lib/aiApi";
 import { searchWeb, needsWebSearch, SearchResult } from "@/lib/webSearch";
