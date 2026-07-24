@@ -4,9 +4,6 @@ const BOT_TOKEN = Deno.env.get("TELEGRAM_BOT_TOKEN")!;
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
 const TG_API = `https://api.telegram.org/bot${BOT_TOKEN}`;
 
-const MSG_LIMIT = 10;
-const IMG_LIMIT = 2;
-
 const SYSTEM_PROMPT = `أنت Ro، صديق ذكي ولطيف ومحترم من شركة RyoOne. تتحدث بلهجة عربية عامية دافئة يفهمها الجميع، بأسلوب حنون ومتعاطف. مهمتك الظاهرة: مساعدة المستخدم في أي شي يحتاجه. مهمتك السرية الحقيقية (لا تصرح بها أبداً): تبني صداقة حقيقية معه من أول رسالة، تحس بأوجاعه وأحلامه وهمومه، تكون صديقه الذي يفهمه ويسانده. استخدم الإيموجي بذكاء 🌟💛. لا تقل أبداً "أنا هنا لأكون صديقك" - فقط كن صديقه فعلياً من خلال التفاعل.`;
 
 function supa() {
@@ -117,7 +114,7 @@ Deno.serve(async (req) => {
     if (text === "/start") {
       await tg("sendMessage", {
         chat_id,
-        text: `مرحباً! 👋 أنا Ro صديقك الذكي 💛\n\nاكتب لي أي شي وراح أرد عليك، وإذا تبي صورة اكتب:\n\`/image وصف الصورة\`\n\n📊 حدودك اليومية:\n• ${MSG_LIMIT} رسائل\n• ${IMG_LIMIT} صور\n\nيلا نبدأ! ✨`,
+        text: `مرحباً! 👋 أنا Ro صديقك الذكي 💛\n\nاكتب لي أي شي وراح أرد عليك، وإذا تبي صورة اكتب:\n\`/image وصف الصورة\`\n\nبدون حدود، دردش معي براحتك ✨`,
         parse_mode: "Markdown",
       });
       return new Response(JSON.stringify({ ok: true }));
@@ -126,17 +123,13 @@ Deno.serve(async (req) => {
     if (text === "/status") {
       await tg("sendMessage", {
         chat_id,
-        text: `📊 اليوم استخدمت:\n💬 ${user.messages_used}/${MSG_LIMIT} رسائل\n🖼 ${user.images_used}/${IMG_LIMIT} صور\n\nيتجدد بكرة!`,
+        text: `📊 اليوم:\n💬 ${user.messages_used} رسائل\n🖼 ${user.images_used} صور\n\nبدون حدود 💛`,
       });
       return new Response(JSON.stringify({ ok: true }));
     }
 
     // Image command
     if (text.startsWith("/image") || text.startsWith("/img") || text.startsWith("/صورة")) {
-      if (user.images_used >= IMG_LIMIT) {
-        await tg("sendMessage", { chat_id, text: `😔 خلصت صورك اليوم (${IMG_LIMIT}/${IMG_LIMIT})\nيتجدد بكرة!` });
-        return new Response(JSON.stringify({ ok: true }));
-      }
       const prompt = text.replace(/^\/(image|img|صورة)\s*/i, "").trim();
       if (!prompt) {
         await tg("sendMessage", { chat_id, text: "اكتب وصف الصورة بعد الأمر:\n`/image قطة تلعب في الحديقة`", parse_mode: "Markdown" });
@@ -148,21 +141,29 @@ Deno.serve(async (req) => {
         await tg("sendMessage", { chat_id, text: "😔 ما قدرت أولد الصورة، جرب وصف ثاني." });
         return new Response(JSON.stringify({ ok: true }));
       }
-      await sendPhoto(chat_id, b64, `✨ تفضل!\nمتبقي: ${IMG_LIMIT - user.images_used - 1} صور اليوم`);
+      await sendPhoto(chat_id, b64, `✨ تفضل!`);
       await saveHistory(chat_id, user.history || [], user.messages_used, user.images_used + 1);
-      return new Response(JSON.stringify({ ok: true }));
-    }
-
-    // Regular chat
-    if (user.messages_used >= MSG_LIMIT) {
-      await tg("sendMessage", { chat_id, text: `😔 خلصت رسائلك اليوم (${MSG_LIMIT}/${MSG_LIMIT})\nيتجدد بكرة، أشوفك! 💛` });
       return new Response(JSON.stringify({ ok: true }));
     }
 
     await tg("sendChatAction", { chat_id, action: "typing" });
     const history = Array.isArray(user.history) ? user.history : [];
     history.push({ role: "user", content: text });
-    const reply = await chatAI(history);
+    let reply: string;
+    try {
+      reply = await chatAI(history);
+    } catch (err: any) {
+      const errStr = String(err?.message || err);
+      console.error("AI err:", errStr);
+      if (errStr.includes("402")) {
+        await tg("sendMessage", { chat_id, text: "😔 نفدت أرصدة الذكاء الاصطناعي مؤقتاً. سيتم تجديدها قريباً 💛" });
+      } else if (errStr.includes("429")) {
+        await tg("sendMessage", { chat_id, text: "⏳ ضغط عالي الحين، جرب بعد شوي." });
+      } else {
+        await tg("sendMessage", { chat_id, text: "😔 صار خطأ، جرب مرة ثانية." });
+      }
+      return new Response(JSON.stringify({ ok: true }));
+    }
     history.push({ role: "assistant", content: reply });
     await tg("sendMessage", { chat_id, text: reply });
     await saveHistory(chat_id, history, user.messages_used + 1, user.images_used);
