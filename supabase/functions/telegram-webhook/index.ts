@@ -89,6 +89,16 @@ async function generateImage(prompt: string): Promise<string | null> {
 }
 
 Deno.serve(async (req) => {
+  const url = new URL(req.url);
+  if (req.method === "GET" && url.searchParams.get("setup") === "1") {
+    const webhookUrl = `${Deno.env.get("SUPABASE_URL")!.replace("https://", "https://")}/functions/v1/telegram-webhook`;
+    const r = await fetch(`${TG_API}/setWebhook`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: webhookUrl, allowed_updates: ["message"] }),
+    });
+    return new Response(await r.text(), { headers: { "Content-Type": "application/json" } });
+  }
   if (req.method !== "POST") return new Response("ok");
   try {
     const update = await req.json();
