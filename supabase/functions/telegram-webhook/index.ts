@@ -99,6 +99,10 @@ Deno.serve(async (req) => {
     });
     return new Response(await r.text(), { headers: { "Content-Type": "application/json" } });
   }
+  if (req.method === "GET" && url.searchParams.get("me") === "1") {
+    const r = await fetch(`${TG_API}/getMe`);
+    return new Response(await r.text(), { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } });
+  }
   if (req.method !== "POST") return new Response("ok");
   try {
     const update = await req.json();
