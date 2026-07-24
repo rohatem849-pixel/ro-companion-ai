@@ -258,6 +258,15 @@ export default function AppSidebar({ isOpen, onClose, profile, onLoadConversatio
               >
                 <span>🧱</span> The Brick
               </button>
+              <a
+                href="https://t.me/RO_AI_friend_BOT"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-medium bg-gradient-to-r from-sky-500/15 to-blue-500/15 text-sky-600 hover:from-sky-500/25 hover:to-blue-500/25 transition-all border border-sky-500/30"
+              >
+                <span>✈️</span>
+                <span className="flex-1 text-right">Ro على تلغرام — دردش معي هناك!</span>
+              </a>
               <button
                 onClick={() => { onOpenSettings(); onClose(); }}
                 className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-secondary transition-all"

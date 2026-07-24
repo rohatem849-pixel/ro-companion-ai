@@ -556,6 +556,42 @@ export type Database = {
           },
         ]
       }
+      telegram_users: {
+        Row: {
+          chat_id: number
+          created_at: string
+          first_name: string | null
+          history: Json
+          images_used: number
+          messages_used: number
+          reset_date: string
+          updated_at: string
+          username: string | null
+        }
+        Insert: {
+          chat_id: number
+          created_at?: string
+          first_name?: string | null
+          history?: Json
+          images_used?: number
+          messages_used?: number
+          reset_date?: string
+          updated_at?: string
+          username?: string | null
+        }
+        Update: {
+          chat_id?: number
+          created_at?: string
+          first_name?: string | null
+          history?: Json
+          images_used?: number
+          messages_used?: number
+          reset_date?: string
+          updated_at?: string
+          username?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
