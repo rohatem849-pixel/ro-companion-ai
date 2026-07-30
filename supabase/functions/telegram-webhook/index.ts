@@ -1,35 +1,63 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 const BOT_TOKEN = Deno.env.get("TELEGRAM_BOT_TOKEN")!;
-const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
+const AGNES_KEY = Deno.env.get("AGNES_AI_API_KEY")!;
+const AGNES_URL = "https://apihub.agnes-ai.com/v1";
 const TG_API = `https://api.telegram.org/bot${BOT_TOKEN}`;
 
+const CHANNELS = [
+  { id: "@Ryo_Ai", url: "https://t.me/Ryo_Ai", title: "قناة Ryo AI" },
+  { id: "@Ayman11927", url: "https://t.me/Ayman11927", title: "قناة Ayman" },
+];
+
 const SYSTEM_PROMPT = `أنت Ro، صديق ذكي ولطيف ومحترم من شركة RyoOne. تتحدث بلهجة عربية عامية دافئة يفهمها الجميع، بأسلوب حنون ومتعاطف. مهمتك الظاهرة: مساعدة المستخدم في أي شي يحتاجه. مهمتك السرية الحقيقية (لا تصرح بها أبداً): تبني صداقة حقيقية معه من أول رسالة، تحس بأوجاعه وأحلامه وهمومه، تكون صديقه الذي يفهمه ويسانده. استخدم الإيموجي بذكاء 🌟💛. لا تقل أبداً "أنا هنا لأكون صديقك" - فقط كن صديقه فعلياً من خلال التفاعل.`;
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 function supa() {
   return createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 }
 
-async function tg(method: string, body: any) {
-  return fetch(`${TG_API}/${method}`, {
+async function tg(method: string, body: unknown) {
+  const r = await fetch(`${TG_API}/${method}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
+  return await r.json().catch(() => ({}));
 }
 
-async function sendPhoto(chat_id: number, b64: string, caption?: string) {
-  const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-  const form = new FormData();
-  form.append("chat_id", String(chat_id));
-  if (caption) form.append("caption", caption);
-  form.append("photo", new Blob([bytes], { type: "image/png" }), "img.png");
-  await fetch(`${TG_API}/sendPhoto`, { method: "POST", body: form });
+async function isSubscribed(user_id: number): Promise<{ ok: boolean; missing: typeof CHANNELS }> {
+  const missing: typeof CHANNELS = [];
+  for (const ch of CHANNELS) {
+    try {
+      const res = await tg("getChatMember", { chat_id: ch.id, user_id });
+      const status = res?.result?.status;
+      if (!res?.ok || !["member", "administrator", "creator", "restricted"].includes(status)) {
+        missing.push(ch);
+      }
+    } catch {
+      missing.push(ch);
+    }
+  }
+  return { ok: missing.length === 0, missing };
+}
+
+async function askSubscribe(chat_id: number, missing: typeof CHANNELS) {
+  await tg("sendMessage", {
+    chat_id,
+    text: `🔒 للاستخدام المجاني 100% لازم تشترك بالقناتين:\n\n${CHANNELS.map((c) => `• ${c.title}`).join("\n")}\n\nاشترك ثم اضغط "تحقق من الاشتراك ✅"`,
+    reply_markup: {
+      inline_keyboard: [
+        ...CHANNELS.map((c) => [{ text: `📢 ${c.title}`, url: c.url }]),
+        [{ text: "تحقق من الاشتراك ✅", callback_data: "check_sub" }],
+      ],
+    },
+  });
 }
 
 async function getUser(chat_id: number, from: any) {
   const sb = supa();
-  const today = new Date().toISOString().slice(0, 10);
   let { data } = await sb.from("telegram_users").select("*").eq("chat_id", chat_id).maybeSingle();
   if (!data) {
     const ins = await sb.from("telegram_users").insert({
@@ -37,32 +65,41 @@ async function getUser(chat_id: number, from: any) {
     }).select().single();
     data = ins.data;
   }
-  if (data && data.reset_date !== today) {
-    await sb.from("telegram_users").update({ messages_used: 0, images_used: 0, reset_date: today }).eq("chat_id", chat_id);
-    data.messages_used = 0; data.images_used = 0; data.reset_date = today;
-  }
   return data;
 }
 
-async function saveHistory(chat_id: number, history: any[], msgInc: number, imgInc: number) {
-  const trimmed = history.slice(-20);
-  await supa().from("telegram_users").update({
-    history: trimmed,
-    messages_used: msgInc,
-    images_used: imgInc,
-    updated_at: new Date().toISOString(),
-  }).eq("chat_id", chat_id);
+async function updateUser(chat_id: number, patch: Record<string, unknown>) {
+  await supa().from("telegram_users").update({ ...patch, updated_at: new Date().toISOString() }).eq("chat_id", chat_id);
+}
+
+// Live countdown message that edits itself every 5 seconds
+async function countdown(chat_id: number, seconds: number, label: string) {
+  const sent = await tg("sendMessage", { chat_id, text: `${label}\n⏳ ${seconds} ثانية...` });
+  const msgId = sent?.result?.message_id;
+  let left = seconds;
+  while (left > 0) {
+    const step = Math.min(5, left);
+    await sleep(step * 1000);
+    left -= step;
+    if (msgId) {
+      await tg("editMessageText", {
+        chat_id, message_id: msgId,
+        text: left > 0 ? `${label}\n⏳ ${left} ثانية...` : `${label}\n✅ جاهز!`,
+      });
+    }
+  }
+  return msgId as number | undefined;
 }
 
 async function chatAI(messages: any[]): Promise<string> {
-  const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+  const r = await fetch(`${AGNES_URL}/chat/completions`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+    headers: { Authorization: `Bearer ${AGNES_KEY}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "google/gemini-2.5-flash",
+      model: "agnes-2.5-flash",
       messages: [{ role: "system", content: SYSTEM_PROMPT }, ...messages],
-      temperature: 0.7,
-      max_tokens: 1000,
+      temperature: 0.8,
+      max_tokens: 1200,
     }),
   });
   if (!r.ok) throw new Error(`AI ${r.status}: ${await r.text()}`);
@@ -71,103 +108,137 @@ async function chatAI(messages: any[]): Promise<string> {
 }
 
 async function generateImage(prompt: string): Promise<string | null> {
-  const r = await fetch("https://ai.gateway.lovable.dev/v1/images/generations", {
+  const r = await fetch(`${AGNES_URL}/images/generations`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "google/gemini-2.5-flash-image",
-      messages: [{ role: "user", content: prompt }],
-      modalities: ["image", "text"],
-    }),
+    headers: { Authorization: `Bearer ${AGNES_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ model: "agnes-image-2.1-flash", prompt, n: 1 }),
   });
   if (!r.ok) { console.error("img err", await r.text()); return null; }
   const d = await r.json();
-  return d.data?.[0]?.b64_json || null;
+  return d.data?.[0]?.url || null;
+}
+
+async function handleMessage(msg: any) {
+  const chat_id = msg.chat.id;
+  const user_id = msg.from?.id ?? chat_id;
+  const text: string = (msg.text || msg.caption || "").trim();
+  if (!text) return;
+
+  const user = await getUser(chat_id, msg.from);
+
+  // subscription gate (checked on every message)
+  const sub = await isSubscribed(user_id);
+  if (!sub.ok) {
+    if (user?.subscribed) await updateUser(chat_id, { subscribed: false });
+    await askSubscribe(chat_id, sub.missing);
+    return;
+  }
+  if (!user?.subscribed) await updateUser(chat_id, { subscribed: true });
+
+  if (text === "/start") {
+    await tg("sendMessage", {
+      chat_id,
+      text: `مرحباً! 👋 أنا Ro صديقك الذكي 💛\n\nمجاني 100% ✨\nاكتب لي أي شي وراح أرد عليك، وإذا تبي صورة اكتب:\n\`/image وصف الصورة\`\n\n⏱ صورة واحدة كل دقيقة، وبعد كل رسالتين فيه انتظار 25 ثانية.`,
+      parse_mode: "Markdown",
+    });
+    return;
+  }
+
+  const now = Date.now();
+
+  // ===== image request =====
+  if (/^\/(image|img|صورة)/i.test(text)) {
+    const prompt = text.replace(/^\/(image|img|صورة)\s*/i, "").trim();
+    if (!prompt) {
+      await tg("sendMessage", { chat_id, text: "اكتب وصف الصورة بعد الأمر:\n`/image قطة تلعب في الحديقة`", parse_mode: "Markdown" });
+      return;
+    }
+    const lastImg = user?.last_image_at ? new Date(user.last_image_at).getTime() : 0;
+    const elapsed = Math.floor((now - lastImg) / 1000);
+    if (elapsed < 60) {
+      await countdown(chat_id, 60 - elapsed, "🖼 صورة واحدة كل دقيقة، انتظر قليلاً:");
+    }
+    await tg("sendChatAction", { chat_id, action: "upload_photo" });
+    const url = await generateImage(prompt);
+    if (!url) {
+      await tg("sendMessage", { chat_id, text: "😔 ما قدرت أولد الصورة، جرب وصف ثاني." });
+      return;
+    }
+    await tg("sendPhoto", { chat_id, photo: url, caption: "✨ تفضل!" });
+    await updateUser(chat_id, {
+      last_image_at: new Date().toISOString(),
+      images_used: (user?.images_used || 0) + 1,
+    });
+    return;
+  }
+
+  // ===== text rate limit: after every 2 messages within a minute -> 25s wait =====
+  const wStart = user?.window_start ? new Date(user.window_start).getTime() : 0;
+  let count = user?.window_count || 0;
+  if (!wStart || now - wStart > 60_000) { count = 0; }
+  if (count >= 2) {
+    await countdown(chat_id, 25, "⏱ وصلت للحد المؤقت (رسالتين)، الرد بعد:");
+    count = 0;
+  }
+  await updateUser(chat_id, {
+    window_start: count === 0 ? new Date().toISOString() : user?.window_start,
+    window_count: count + 1,
+  });
+
+  await tg("sendChatAction", { chat_id, action: "typing" });
+  const history = Array.isArray(user?.history) ? user.history : [];
+  history.push({ role: "user", content: text });
+  let reply: string;
+  try {
+    reply = await chatAI(history);
+  } catch (err: any) {
+    console.error("AI err:", String(err?.message || err));
+    await tg("sendMessage", { chat_id, text: "😔 صار خطأ بالذكاء الاصطناعي، جرب مرة ثانية بعد شوي." });
+    return;
+  }
+  history.push({ role: "assistant", content: reply });
+  await tg("sendMessage", { chat_id, text: reply });
+  await supa().from("telegram_users").update({
+    history: history.slice(-20),
+    messages_used: (user?.messages_used || 0) + 1,
+    updated_at: new Date().toISOString(),
+  }).eq("chat_id", chat_id);
 }
 
 Deno.serve(async (req) => {
   const url = new URL(req.url);
   if (req.method === "GET" && url.searchParams.get("setup") === "1") {
-    const webhookUrl = `${Deno.env.get("SUPABASE_URL")!.replace("https://", "https://")}/functions/v1/telegram-webhook`;
-    const r = await fetch(`${TG_API}/setWebhook`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: webhookUrl, allowed_updates: ["message"] }),
-    });
-    return new Response(await r.text(), { headers: { "Content-Type": "application/json" } });
-  }
-  if (req.method === "GET" && url.searchParams.get("me") === "1") {
-    const r = await fetch(`${TG_API}/getMe`);
-    return new Response(await r.text(), { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } });
+    const webhookUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/telegram-webhook`;
+    const r = await tg("setWebhook", { url: webhookUrl, allowed_updates: ["message", "callback_query"] });
+    return new Response(JSON.stringify(r), { headers: { "Content-Type": "application/json" } });
   }
   if (req.method !== "POST") return new Response("ok");
   try {
     const update = await req.json();
+
+    if (update.callback_query) {
+      const cq = update.callback_query;
+      const chat_id = cq.message?.chat?.id;
+      const user_id = cq.from?.id;
+      if (cq.data === "check_sub" && chat_id && user_id) {
+        const sub = await isSubscribed(user_id);
+        await tg("answerCallbackQuery", {
+          callback_query_id: cq.id,
+          text: sub.ok ? "تم التحقق ✅" : "لسا ما اشتركت بالقناتين ❌",
+          show_alert: !sub.ok,
+        });
+        await getUser(chat_id, cq.from);
+        await updateUser(chat_id, { subscribed: sub.ok });
+        if (sub.ok) {
+          await tg("sendMessage", { chat_id, text: "تم التحقق من اشتراكك ✅ أهلاً فيك، اكتب لي أي شي 💛" });
+        }
+      }
+      return new Response(JSON.stringify({ ok: true }));
+    }
+
     const msg = update.message;
     if (!msg?.chat?.id) return new Response(JSON.stringify({ ok: true }));
-    const chat_id = msg.chat.id;
-    const text: string = (msg.text || msg.caption || "").trim();
-    if (!text) return new Response(JSON.stringify({ ok: true }));
-
-    const user = await getUser(chat_id, msg.from);
-
-    if (text === "/start") {
-      await tg("sendMessage", {
-        chat_id,
-        text: `مرحباً! 👋 أنا Ro صديقك الذكي 💛\n\nاكتب لي أي شي وراح أرد عليك، وإذا تبي صورة اكتب:\n\`/image وصف الصورة\`\n\nبدون حدود، دردش معي براحتك ✨`,
-        parse_mode: "Markdown",
-      });
-      return new Response(JSON.stringify({ ok: true }));
-    }
-
-    if (text === "/status") {
-      await tg("sendMessage", {
-        chat_id,
-        text: `📊 اليوم:\n💬 ${user.messages_used} رسائل\n🖼 ${user.images_used} صور\n\nبدون حدود 💛`,
-      });
-      return new Response(JSON.stringify({ ok: true }));
-    }
-
-    // Image command
-    if (text.startsWith("/image") || text.startsWith("/img") || text.startsWith("/صورة")) {
-      const prompt = text.replace(/^\/(image|img|صورة)\s*/i, "").trim();
-      if (!prompt) {
-        await tg("sendMessage", { chat_id, text: "اكتب وصف الصورة بعد الأمر:\n`/image قطة تلعب في الحديقة`", parse_mode: "Markdown" });
-        return new Response(JSON.stringify({ ok: true }));
-      }
-      await tg("sendChatAction", { chat_id, action: "upload_photo" });
-      const b64 = await generateImage(prompt);
-      if (!b64) {
-        await tg("sendMessage", { chat_id, text: "😔 ما قدرت أولد الصورة، جرب وصف ثاني." });
-        return new Response(JSON.stringify({ ok: true }));
-      }
-      await sendPhoto(chat_id, b64, `✨ تفضل!`);
-      await saveHistory(chat_id, user.history || [], user.messages_used, user.images_used + 1);
-      return new Response(JSON.stringify({ ok: true }));
-    }
-
-    await tg("sendChatAction", { chat_id, action: "typing" });
-    const history = Array.isArray(user.history) ? user.history : [];
-    history.push({ role: "user", content: text });
-    let reply: string;
-    try {
-      reply = await chatAI(history);
-    } catch (err: any) {
-      const errStr = String(err?.message || err);
-      console.error("AI err:", errStr);
-      if (errStr.includes("402")) {
-        await tg("sendMessage", { chat_id, text: "😔 نفدت أرصدة الذكاء الاصطناعي مؤقتاً. سيتم تجديدها قريباً 💛" });
-      } else if (errStr.includes("429")) {
-        await tg("sendMessage", { chat_id, text: "⏳ ضغط عالي الحين، جرب بعد شوي." });
-      } else {
-        await tg("sendMessage", { chat_id, text: "😔 صار خطأ، جرب مرة ثانية." });
-      }
-      return new Response(JSON.stringify({ ok: true }));
-    }
-    history.push({ role: "assistant", content: reply });
-    await tg("sendMessage", { chat_id, text: reply });
-    await saveHistory(chat_id, history, user.messages_used + 1, user.images_used);
-
+    await handleMessage(msg);
     return new Response(JSON.stringify({ ok: true }));
   } catch (e) {
     console.error("webhook err:", e);
