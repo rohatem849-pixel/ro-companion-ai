@@ -152,7 +152,7 @@ async function handleMessage(msg: any) {
   const user = await getUser(chat_id, msg.from);
 
   // subscription gate — cached for 10 minutes to keep replies fast
-  const lastCheck = user?.updated_at ? new Date(user.updated_at).getTime() : 0;
+  const lastCheck = user?.sub_checked_at ? new Date(user.sub_checked_at).getTime() : 0;
   const cacheFresh = user?.subscribed && Date.now() - lastCheck < 10 * 60_000;
   if (!cacheFresh) {
     const sub = await isSubscribed(user_id);
@@ -161,7 +161,7 @@ async function handleMessage(msg: any) {
       await askSubscribe(chat_id, sub.missing);
       return;
     }
-    if (!user?.subscribed) await updateUser(chat_id, { subscribed: true });
+    await updateUser(chat_id, { subscribed: true, sub_checked_at: new Date().toISOString() });
   }
 
   if (text === "/start") {
@@ -282,7 +282,11 @@ Deno.serve(async (req) => {
 
     const msg = update.message;
     if (!msg?.chat?.id) return new Response(JSON.stringify({ ok: true }));
-    await handleMessage(msg);
+    // Ack Telegram instantly, keep working in the background (avoids retries + feels faster)
+    const work = handleMessage(msg).catch((e) => console.error("handle err:", e));
+    // @ts-ignore EdgeRuntime is available in Supabase Edge Functions
+    if (typeof EdgeRuntime !== "undefined") EdgeRuntime.waitUntil(work);
+    else await work;
     return new Response(JSON.stringify({ ok: true }));
   } catch (e) {
     console.error("webhook err:", e);
