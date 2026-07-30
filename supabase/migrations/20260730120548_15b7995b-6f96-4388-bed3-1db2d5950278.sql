@@ -1,0 +1,1 @@
+ALTER TABLE public.telegram_users ADD COLUMN IF NOT EXISTS sub_checked_at timestamptz;

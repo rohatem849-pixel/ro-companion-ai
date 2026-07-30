@@ -28,18 +28,19 @@ async function tg(method: string, body: unknown) {
 }
 
 async function isSubscribed(user_id: number): Promise<{ ok: boolean; missing: typeof CHANNELS }> {
-  const missing: typeof CHANNELS = [];
-  for (const ch of CHANNELS) {
-    try {
-      const res = await tg("getChatMember", { chat_id: ch.id, user_id });
-      const status = res?.result?.status;
-      if (!res?.ok || !["member", "administrator", "creator", "restricted"].includes(status)) {
-        missing.push(ch);
+  const results = await Promise.all(
+    CHANNELS.map(async (ch) => {
+      try {
+        const res = await tg("getChatMember", { chat_id: ch.id, user_id });
+        const status = res?.result?.status;
+        const ok = res?.ok && ["member", "administrator", "creator", "restricted"].includes(status);
+        return ok ? null : ch;
+      } catch {
+        return ch;
       }
-    } catch {
-      missing.push(ch);
-    }
-  }
+    }),
+  );
+  const missing = results.filter(Boolean) as typeof CHANNELS;
   return { ok: missing.length === 0, missing };
 }
 
@@ -91,31 +92,55 @@ async function countdown(chat_id: number, seconds: number, label: string) {
   return msgId as number | undefined;
 }
 
-async function chatAI(messages: any[]): Promise<string> {
+async function callModel(model: string, messages: any[]): Promise<string> {
   const r = await fetch(`${AGNES_URL}/chat/completions`, {
     method: "POST",
     headers: { Authorization: `Bearer ${AGNES_KEY}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "agnes-2.5-flash",
+      model,
       messages: [{ role: "system", content: SYSTEM_PROMPT }, ...messages],
       temperature: 0.8,
-      max_tokens: 1200,
+      max_tokens: 600,
     }),
   });
-  if (!r.ok) throw new Error(`AI ${r.status}: ${await r.text()}`);
+  if (!r.ok) throw new Error(`AI ${model} ${r.status}: ${await r.text()}`);
   const d = await r.json();
-  return d.choices?.[0]?.message?.content || "عذراً، ما قدرت أرد الحين 😔";
+  const txt = d.choices?.[0]?.message?.content;
+  if (!txt) throw new Error(`AI ${model} empty`);
+  return txt;
+}
+
+// Race two models — whichever answers first wins (provider latency varies a lot)
+async function chatAI(messages: any[]): Promise<string> {
+  const short = messages.slice(-8);
+  const models = ["agnes-2.5-flash", "agnes-2.0-flash"];
+  const attempts = models.map((m) => callModel(m, short));
+  try {
+    return await Promise.any(attempts);
+  } catch {
+    return "عذراً، ما قدرت أرد الحين 😔 جرب مرة ثانية.";
+  }
+}
+
+async function tryImage(model: string, prompt: string): Promise<string | null> {
+  try {
+    const r = await fetch(`${AGNES_URL}/images/generations`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${AGNES_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ model, prompt, n: 1 }),
+    });
+    if (!r.ok) { console.error(`img ${model} err`, r.status, await r.text()); return null; }
+    const d = await r.json();
+    return d.data?.[0]?.url || (d.data?.[0]?.b64_json ? `data:image/png;base64,${d.data[0].b64_json}` : null);
+  } catch (e) {
+    console.error(`img ${model} throw`, String(e));
+    return null;
+  }
 }
 
 async function generateImage(prompt: string): Promise<string | null> {
-  const r = await fetch(`${AGNES_URL}/images/generations`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${AGNES_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: "agnes-image-2.1-flash", prompt, n: 1 }),
-  });
-  if (!r.ok) { console.error("img err", await r.text()); return null; }
-  const d = await r.json();
-  return d.data?.[0]?.url || null;
+  // 2.0-flash is the reliable image endpoint; 2.1 as fallback
+  return (await tryImage("agnes-image-2.0-flash", prompt)) ?? (await tryImage("agnes-image-2.1-flash", prompt));
 }
 
 async function handleMessage(msg: any) {
@@ -126,14 +151,18 @@ async function handleMessage(msg: any) {
 
   const user = await getUser(chat_id, msg.from);
 
-  // subscription gate (checked on every message)
-  const sub = await isSubscribed(user_id);
-  if (!sub.ok) {
-    if (user?.subscribed) await updateUser(chat_id, { subscribed: false });
-    await askSubscribe(chat_id, sub.missing);
-    return;
+  // subscription gate — cached for 10 minutes to keep replies fast
+  const lastCheck = user?.sub_checked_at ? new Date(user.sub_checked_at).getTime() : 0;
+  const cacheFresh = user?.subscribed && Date.now() - lastCheck < 10 * 60_000;
+  if (!cacheFresh) {
+    const sub = await isSubscribed(user_id);
+    if (!sub.ok) {
+      if (user?.subscribed) await updateUser(chat_id, { subscribed: false });
+      await askSubscribe(chat_id, sub.missing);
+      return;
+    }
+    await updateUser(chat_id, { subscribed: true, sub_checked_at: new Date().toISOString() });
   }
-  if (!user?.subscribed) await updateUser(chat_id, { subscribed: true });
 
   if (text === "/start") {
     await tg("sendMessage", {
@@ -146,25 +175,37 @@ async function handleMessage(msg: any) {
 
   const now = Date.now();
 
+  // natural-language image request (no slash needed)
+  const naturalImage = /(ارسم|إرسم|صمم|ولّد|ولد|اعمل|سوي|اصنع|ابغى|بدي)\s*(لي)?\s*(صورة|صوره|رسمة|رسمه)|^(صورة|صوره)\s+\S/i.test(text);
+
   // ===== image request =====
-  if (/^\/(image|img|صورة)/i.test(text)) {
-    const prompt = text.replace(/^\/(image|img|صورة)\s*/i, "").trim();
+  if (/^\/(image|img|صورة)/i.test(text) || naturalImage) {
+    const prompt = text
+      .replace(/^\/(image|img|صورة)\s*/i, "")
+      .replace(/^(ارسم|إرسم|صمم|ولّد|ولد|اعمل|سوي|اصنع|ابغى|بدي)\s*(لي)?\s*(صورة|صوره|رسمة|رسمه)\s*(ل|عن|لـ)?\s*/i, "")
+      .replace(/^(صورة|صوره)\s+/i, "")
+      .trim();
     if (!prompt) {
       await tg("sendMessage", { chat_id, text: "اكتب وصف الصورة بعد الأمر:\n`/image قطة تلعب في الحديقة`", parse_mode: "Markdown" });
       return;
     }
     const lastImg = user?.last_image_at ? new Date(user.last_image_at).getTime() : 0;
     const elapsed = Math.floor((now - lastImg) / 1000);
+    // start generating immediately, run the countdown in parallel
+    const imgPromise = generateImage(prompt);
     if (elapsed < 60) {
       await countdown(chat_id, 60 - elapsed, "🖼 صورة واحدة كل دقيقة، انتظر قليلاً:");
     }
     await tg("sendChatAction", { chat_id, action: "upload_photo" });
-    const url = await generateImage(prompt);
+    const url = await imgPromise;
     if (!url) {
-      await tg("sendMessage", { chat_id, text: "😔 ما قدرت أولد الصورة، جرب وصف ثاني." });
+      await tg("sendMessage", { chat_id, text: "😔 ما قدرت أولّد الصورة الحين، جرّب وصف ثاني بعد شوي." });
       return;
     }
-    await tg("sendPhoto", { chat_id, photo: url, caption: "✨ تفضل!" });
+    const sendRes = await tg("sendPhoto", { chat_id, photo: url, caption: "✨ تفضل!" });
+    if (!sendRes?.ok) {
+      await tg("sendMessage", { chat_id, text: `✨ تفضل صورتك:\n${url}` });
+    }
     await updateUser(chat_id, {
       last_image_at: new Date().toISOString(),
       images_used: (user?.images_used || 0) + 1,
@@ -176,23 +217,24 @@ async function handleMessage(msg: any) {
   const wStart = user?.window_start ? new Date(user.window_start).getTime() : 0;
   let count = user?.window_count || 0;
   if (!wStart || now - wStart > 60_000) { count = 0; }
+
+  const history = Array.isArray(user?.history) ? user.history : [];
+  history.push({ role: "user", content: text });
+
+  // fire the AI request first so the wait runs in parallel with it
+  await tg("sendChatAction", { chat_id, action: "typing" });
+  const aiPromise = chatAI(history).catch((err: any) => {
+    console.error("AI err:", String(err?.message || err));
+    return null;
+  });
+
   if (count >= 2) {
     await countdown(chat_id, 25, "⏱ وصلت للحد المؤقت (رسالتين)، الرد بعد:");
     count = 0;
   }
-  await updateUser(chat_id, {
-    window_start: count === 0 ? new Date().toISOString() : user?.window_start,
-    window_count: count + 1,
-  });
 
-  await tg("sendChatAction", { chat_id, action: "typing" });
-  const history = Array.isArray(user?.history) ? user.history : [];
-  history.push({ role: "user", content: text });
-  let reply: string;
-  try {
-    reply = await chatAI(history);
-  } catch (err: any) {
-    console.error("AI err:", String(err?.message || err));
+  const reply = await aiPromise;
+  if (!reply) {
     await tg("sendMessage", { chat_id, text: "😔 صار خطأ بالذكاء الاصطناعي، جرب مرة ثانية بعد شوي." });
     return;
   }
@@ -201,6 +243,8 @@ async function handleMessage(msg: any) {
   await supa().from("telegram_users").update({
     history: history.slice(-20),
     messages_used: (user?.messages_used || 0) + 1,
+    window_start: count === 0 ? new Date().toISOString() : user?.window_start,
+    window_count: count + 1,
     updated_at: new Date().toISOString(),
   }).eq("chat_id", chat_id);
 }
@@ -238,7 +282,11 @@ Deno.serve(async (req) => {
 
     const msg = update.message;
     if (!msg?.chat?.id) return new Response(JSON.stringify({ ok: true }));
-    await handleMessage(msg);
+    // Ack Telegram instantly, keep working in the background (avoids retries + feels faster)
+    const work = handleMessage(msg).catch((e) => console.error("handle err:", e));
+    // @ts-ignore EdgeRuntime is available in Supabase Edge Functions
+    if (typeof EdgeRuntime !== "undefined") EdgeRuntime.waitUntil(work);
+    else await work;
     return new Response(JSON.stringify({ ok: true }));
   } catch (e) {
     console.error("webhook err:", e);

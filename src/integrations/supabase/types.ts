@@ -566,6 +566,7 @@ export type Database = {
           last_image_at: string | null
           messages_used: number
           reset_date: string
+          sub_checked_at: string | null
           subscribed: boolean
           updated_at: string
           username: string | null
@@ -581,6 +582,7 @@ export type Database = {
           last_image_at?: string | null
           messages_used?: number
           reset_date?: string
+          sub_checked_at?: string | null
           subscribed?: boolean
           updated_at?: string
           username?: string | null
@@ -596,6 +598,7 @@ export type Database = {
           last_image_at?: string | null
           messages_used?: number
           reset_date?: string
+          sub_checked_at?: string | null
           subscribed?: boolean
           updated_at?: string
           username?: string | null
