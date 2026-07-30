@@ -563,10 +563,14 @@ export type Database = {
           first_name: string | null
           history: Json
           images_used: number
+          last_image_at: string | null
           messages_used: number
           reset_date: string
+          subscribed: boolean
           updated_at: string
           username: string | null
+          window_count: number
+          window_start: string | null
         }
         Insert: {
           chat_id: number
@@ -574,10 +578,14 @@ export type Database = {
           first_name?: string | null
           history?: Json
           images_used?: number
+          last_image_at?: string | null
           messages_used?: number
           reset_date?: string
+          subscribed?: boolean
           updated_at?: string
           username?: string | null
+          window_count?: number
+          window_start?: string | null
         }
         Update: {
           chat_id?: number
@@ -585,10 +593,14 @@ export type Database = {
           first_name?: string | null
           history?: Json
           images_used?: number
+          last_image_at?: string | null
           messages_used?: number
           reset_date?: string
+          subscribed?: boolean
           updated_at?: string
           username?: string | null
+          window_count?: number
+          window_start?: string | null
         }
         Relationships: []
       }
