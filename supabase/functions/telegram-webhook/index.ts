@@ -143,6 +143,48 @@ async function generateImage(prompt: string): Promise<string | null> {
   return (await tryImage("agnes-image-2.0-flash", prompt)) ?? (await tryImage("agnes-image-2.1-flash", prompt));
 }
 
+// Fetch the generated image bytes and upload them straight to Telegram,
+// so the user sees the photo inside the chat (never a link).
+async function sendGeneratedPhoto(chat_id: number, src: string, caption: string): Promise<boolean> {
+  try {
+    let bytes: Uint8Array;
+    if (src.startsWith("data:")) {
+      const b64 = src.split(",")[1] ?? "";
+      bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    } else {
+      const r = await fetch(src);
+      if (!r.ok) return false;
+      bytes = new Uint8Array(await r.arrayBuffer());
+    }
+    const form = new FormData();
+    form.append("chat_id", String(chat_id));
+    form.append("caption", caption);
+    form.append("photo", new Blob([bytes], { type: "image/png" }), "ro.png");
+    const res = await fetch(`${TG_API}/sendPhoto`, { method: "POST", body: form });
+    const j = await res.json().catch(() => ({}));
+    if (j?.ok) return true;
+    // fall back to document upload (large / non-standard dimensions)
+    const form2 = new FormData();
+    form2.append("chat_id", String(chat_id));
+    form2.append("caption", caption);
+    form2.append("document", new Blob([bytes], { type: "image/png" }), "ro.png");
+    const res2 = await fetch(`${TG_API}/sendDocument`, { method: "POST", body: form2 });
+    const j2 = await res2.json().catch(() => ({}));
+    return !!j2?.ok;
+  } catch (e) {
+    console.error("sendGeneratedPhoto err", String(e));
+    return false;
+  }
+}
+
+const MAIN_KEYBOARD = {
+  keyboard: [
+    [{ text: "🖼 إنشاء صورة / Create image" }],
+    [{ text: "💬 دردشة / Chat" }, { text: "ℹ️ مساعدة / Help" }],
+  ],
+  resize_keyboard: true,
+};
+
 async function handleMessage(msg: any) {
   const chat_id = msg.chat.id;
   const user_id = msg.from?.id ?? chat_id;
@@ -167,13 +209,35 @@ async function handleMessage(msg: any) {
   if (text === "/start") {
     await tg("sendMessage", {
       chat_id,
-      text: `مرحباً! 👋 أنا Ro صديقك الذكي 💛\n\nمجاني 100% ✨\nاكتب لي أي شي وراح أرد عليك، وإذا تبي صورة اكتب:\n\`/image وصف الصورة\`\n\n⏱ صورة واحدة كل دقيقة، وبعد كل رسالتين فيه انتظار 25 ثانية.`,
-      parse_mode: "Markdown",
+      text: `مرحباً! 👋 أنا Ro صديقك الذكي 💛\nمجاني 100% ✨ اكتب لي أي شي وراح أرد عليك.\nلصورة: /image ثم الوصف، أو اضغط زر «🖼 إنشاء صورة».\n⏱ صورة واحدة كل دقيقة، وبعد كل رسالتين انتظار 25 ثانية.\n\n— — —\n\nWelcome! 👋 I'm Ro, your smart friend 💛\n100% free ✨ Write me anything and I'll reply.\nFor an image: /image then the description, or tap "🖼 Create image".\n⏱ One image per minute, and a 25s wait after every 2 messages.`,
+      reply_markup: MAIN_KEYBOARD,
     });
     return;
   }
 
   const now = Date.now();
+
+  // ===== control panel buttons =====
+  if (text.startsWith("🖼")) {
+    await tg("sendMessage", {
+      chat_id,
+      text: "اكتب الأمر مع وصف الصورة 👇\nWrite the command with your description 👇\n\n/image ",
+      reply_markup: { force_reply: true, input_field_placeholder: "/image قطة تلعب في الحديقة" },
+    });
+    return;
+  }
+  if (text.startsWith("ℹ️")) {
+    await tg("sendMessage", {
+      chat_id,
+      text: "🖼 إنشاء صورة: /image وصف الصورة\n💬 دردشة: اكتب أي رسالة\n\n🖼 Create image: /image your description\n💬 Chat: just send any message",
+      reply_markup: MAIN_KEYBOARD,
+    });
+    return;
+  }
+  if (text.startsWith("💬")) {
+    await tg("sendMessage", { chat_id, text: "تفضل، اكتب لي 💛\nGo ahead, write to me 💛", reply_markup: MAIN_KEYBOARD });
+    return;
+  }
 
   // natural-language image request (no slash needed)
   const naturalImage = /(ارسم|إرسم|صمم|ولّد|ولد|اعمل|سوي|اصنع|ابغى|بدي)\s*(لي)?\s*(صورة|صوره|رسمة|رسمه)|^(صورة|صوره)\s+\S/i.test(text);
@@ -202,9 +266,10 @@ async function handleMessage(msg: any) {
       await tg("sendMessage", { chat_id, text: "😔 ما قدرت أولّد الصورة الحين، جرّب وصف ثاني بعد شوي." });
       return;
     }
-    const sendRes = await tg("sendPhoto", { chat_id, photo: url, caption: "✨ تفضل!" });
-    if (!sendRes?.ok) {
-      await tg("sendMessage", { chat_id, text: `✨ تفضل صورتك:\n${url}` });
+    const sent = await sendGeneratedPhoto(chat_id, url, "✨ تفضل! / Here you go!");
+    if (!sent) {
+      await tg("sendMessage", { chat_id, text: "😔 ما قدرت أرسل الصورة، جرّب مرة ثانية." });
+      return;
     }
     await updateUser(chat_id, {
       last_image_at: new Date().toISOString(),
