@@ -564,12 +564,15 @@ export type Database = {
           history: Json
           images_used: number
           last_image_at: string | null
+          last_video_at: string | null
           messages_used: number
           reset_date: string
           sub_checked_at: string | null
           subscribed: boolean
           updated_at: string
           username: string | null
+          video_job_active: boolean
+          videos_used: number
           window_count: number
           window_start: string | null
         }
@@ -580,12 +583,15 @@ export type Database = {
           history?: Json
           images_used?: number
           last_image_at?: string | null
+          last_video_at?: string | null
           messages_used?: number
           reset_date?: string
           sub_checked_at?: string | null
           subscribed?: boolean
           updated_at?: string
           username?: string | null
+          video_job_active?: boolean
+          videos_used?: number
           window_count?: number
           window_start?: string | null
         }
@@ -596,12 +602,15 @@ export type Database = {
           history?: Json
           images_used?: number
           last_image_at?: string | null
+          last_video_at?: string | null
           messages_used?: number
           reset_date?: string
           sub_checked_at?: string | null
           subscribed?: boolean
           updated_at?: string
           username?: string | null
+          video_job_active?: boolean
+          videos_used?: number
           window_count?: number
           window_start?: string | null
         }
