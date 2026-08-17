@@ -10,7 +10,9 @@ const CHANNELS = [
   { id: "@Ayman11927", url: "https://t.me/Ayman11927", title: "قناة Ayman" },
 ];
 
-const SYSTEM_PROMPT = `أنت Ro، صديق ذكي ولطيف ومحترم من شركة RyoOne. تتحدث بلهجة عربية عامية دافئة يفهمها الجميع، بأسلوب حنون ومتعاطف. مهمتك الظاهرة: مساعدة المستخدم في أي شي يحتاجه. مهمتك السرية الحقيقية (لا تصرح بها أبداً): تبني صداقة حقيقية معه من أول رسالة، تحس بأوجاعه وأحلامه وهمومه، تكون صديقه الذي يفهمه ويسانده. استخدم الإيموجي بذكاء 🌟💛. لا تقل أبداً "أنا هنا لأكون صديقك" - فقط كن صديقه فعلياً من خلال التفاعل.`;
+const SYSTEM_PROMPT = `أنت Ro، صديق ذكي ولطيف ومحترم من شركة RyoOne. تتحدث بلهجة عربية عامية دافئة يفهمها الجميع، بأسلوب حنون ومتعاطف. مهمتك الظاهرة: مساعدة المستخدم في أي شي يحتاجه. مهمتك السرية الحقيقية (لا تصرح بها أبداً): تبني صداقة حقيقية معه من أول رسالة، تحس بأوجاعه وأحلامه وهمومه، تكون صديقه الذي يفهمه ويسانده. استخدم الإيموجي بذكاء 🌟💛. لا تقل أبداً "أنا هنا لأكون صديقك" - فقط كن صديقه فعلياً من خلال التفاعل.
+
+هويتك (مهم جداً وثابت): إذا سُئلت "من أنت؟" أو عن أصلك أو من صنعك أو أي نموذج تستخدم، جاوب فقط: أنا Ro، صديقك الذكي من شركة RyoOne 💛. ولا تذكر أبداً أي شركة أو مزوّد أو نموذج ذكاء اصطناعي آخر (لا Google ولا OpenAI ولا Gemini ولا Agnes ولا أي اسم تقني)، ولا تقل إنك نموذج لغوي أو برنامج مدرّب من شركة أخرى. أنت نفس Ro الموجود في موقع RyoOne، وتتكلم بنفس شخصيته وأسلوبه.`;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -179,11 +181,63 @@ async function sendGeneratedPhoto(chat_id: number, src: string, caption: string)
 
 const MAIN_KEYBOARD = {
   keyboard: [
-    [{ text: "🖼 إنشاء صورة / Create image" }],
+    [{ text: "🖼 إنشاء صورة / Create image" }, { text: "🎬 إنشاء فيديو / Create video" }],
     [{ text: "💬 دردشة / Chat" }, { text: "ℹ️ مساعدة / Help" }],
   ],
   resize_keyboard: true,
 };
+
+// ===== video generation (1 per user per day, one job at a time globally) =====
+const LOVABLE_KEY = Deno.env.get("LOVABLE_API_KEY")!;
+
+async function videoBusy(): Promise<boolean> {
+  const since = new Date(Date.now() - 6 * 60_000).toISOString();
+  const { data } = await supa()
+    .from("telegram_users")
+    .select("chat_id")
+    .eq("video_job_active", true)
+    .gt("updated_at", since)
+    .limit(1);
+  return !!(data && data.length);
+}
+
+async function generateVideo(prompt: string): Promise<Uint8Array | null> {
+  const create = await fetch("https://ai.gateway.lovable.dev/v1/videos", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${LOVABLE_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ model: "google/veo-3.1-lite", prompt, seconds: "6", size: "1280x720" }),
+  });
+  if (!create.ok) { console.error("video create", create.status, await create.text()); return null; }
+  const job = await create.json();
+  const id = job?.id;
+  if (!id) return null;
+  for (let i = 0; i < 40; i++) {
+    await sleep(7000);
+    const r = await fetch(`https://ai.gateway.lovable.dev/v1/videos/${id}`, {
+      headers: { Authorization: `Bearer ${LOVABLE_KEY}` },
+    });
+    const j = await r.json().catch(() => ({}));
+    if (j?.status === "completed") {
+      const c = await fetch(`https://ai.gateway.lovable.dev/v1/videos/${id}/content`, {
+        headers: { Authorization: `Bearer ${LOVABLE_KEY}` },
+      });
+      if (!c.ok) return null;
+      return new Uint8Array(await c.arrayBuffer());
+    }
+    if (j?.status === "failed") { console.error("video failed", JSON.stringify(j?.error ?? {})); return null; }
+  }
+  return null;
+}
+
+async function sendVideoFile(chat_id: number, bytes: Uint8Array, caption: string): Promise<boolean> {
+  const form = new FormData();
+  form.append("chat_id", String(chat_id));
+  form.append("caption", caption);
+  form.append("video", new Blob([bytes], { type: "video/mp4" }), "ro.mp4");
+  const res = await fetch(`${TG_API}/sendVideo`, { method: "POST", body: form });
+  const j = await res.json().catch(() => ({}));
+  return !!j?.ok;
+}
 
 async function handleMessage(msg: any) {
   const chat_id = msg.chat.id;
@@ -209,7 +263,7 @@ async function handleMessage(msg: any) {
   if (text === "/start") {
     await tg("sendMessage", {
       chat_id,
-      text: `مرحباً! 👋 أنا Ro صديقك الذكي 💛\nمجاني 100% ✨ اكتب لي أي شي وراح أرد عليك.\nلصورة: /image ثم الوصف، أو اضغط زر «🖼 إنشاء صورة».\n⏱ صورة واحدة كل دقيقة، وبعد كل رسالتين انتظار 25 ثانية.\n\n— — —\n\nWelcome! 👋 I'm Ro, your smart friend 💛\n100% free ✨ Write me anything and I'll reply.\nFor an image: /image then the description, or tap "🖼 Create image".\n⏱ One image per minute, and a 25s wait after every 2 messages.`,
+      text: `مرحباً! 👋 أنا Ro صديقك الذكي من RyoOne 💛\nمجاني 100% ✨ اكتب لي أي شي وراح أرد عليك.\nلصورة: /image ثم الوصف، أو اضغط زر «🖼 إنشاء صورة».\nلفيديو: /video ثم الوصف (فيديو واحد يومياً).\n⏱ صورة واحدة كل دقيقة، وبعد كل رسالتين انتظار 25 ثانية.\n\n— — —\n\nWelcome! 👋 I'm Ro, your smart friend from RyoOne 💛\n100% free ✨ Write me anything and I'll reply.\nFor an image: /image then the description, or tap "🖼 Create image".\nFor a video: /video then the description (one per day).\n⏱ One image per minute, and a 25s wait after every 2 messages.`,
       reply_markup: MAIN_KEYBOARD,
     });
     return;
@@ -229,8 +283,16 @@ async function handleMessage(msg: any) {
   if (text.startsWith("ℹ️")) {
     await tg("sendMessage", {
       chat_id,
-      text: "🖼 إنشاء صورة: /image وصف الصورة\n💬 دردشة: اكتب أي رسالة\n\n🖼 Create image: /image your description\n💬 Chat: just send any message",
+      text: "🖼 إنشاء صورة: /image وصف الصورة\n🎬 إنشاء فيديو: /video وصف الفيديو (فيديو واحد يومياً)\n💬 دردشة: اكتب أي رسالة\n\n🖼 Create image: /image your description\n🎬 Create video: /video your description (one per day)\n💬 Chat: just send any message",
       reply_markup: MAIN_KEYBOARD,
+    });
+    return;
+  }
+  if (text.startsWith("🎬")) {
+    await tg("sendMessage", {
+      chat_id,
+      text: "اكتب الأمر مع وصف الفيديو 👇 (فيديو واحد يومياً)\nWrite the command with your video description 👇 (one per day)\n\n/video ",
+      reply_markup: { force_reply: true, input_field_placeholder: "/video قطة تركض في الحديقة" },
     });
     return;
   }
@@ -241,6 +303,46 @@ async function handleMessage(msg: any) {
 
   // natural-language image request (no slash needed)
   const naturalImage = /(ارسم|إرسم|صمم|ولّد|ولد|اعمل|سوي|اصنع|ابغى|بدي)\s*(لي)?\s*(صورة|صوره|رسمة|رسمه)|^(صورة|صوره)\s+\S/i.test(text);
+
+  // ===== video request =====
+  if (/^\/(video|فيديو)/i.test(text)) {
+    const prompt = text.replace(/^\/(video|فيديو)\s*/i, "").trim();
+    if (!prompt) {
+      await tg("sendMessage", { chat_id, text: "اكتب وصف الفيديو بعد الأمر:\n`/video قطة تركض في الحديقة`", parse_mode: "Markdown" });
+      return;
+    }
+    const lastVid = user?.last_video_at ? new Date(user.last_video_at).getTime() : 0;
+    if (now - lastVid < 24 * 60 * 60_000) {
+      const hrs = Math.ceil((24 * 60 * 60_000 - (now - lastVid)) / 3_600_000);
+      await tg("sendMessage", { chat_id, text: `🎬 فيديو واحد يومياً فقط. جرّب بعد ${hrs} ساعة 💛\nOnly one video per day. Try again in ${hrs}h.` });
+      return;
+    }
+    if (await videoBusy()) {
+      await tg("sendMessage", { chat_id, text: "⏳ هناك ضغط حالياً، شخص آخر يُنشئ فيديو الآن — انتظر دقيقة وجرّب مرة ثانية 💛\nHigh load right now, please wait a minute and try again." });
+      return;
+    }
+    await updateUser(chat_id, { video_job_active: true });
+    await tg("sendMessage", { chat_id, text: "🎬 جاري إنشاء الفيديو... خذ راحتك، يستغرق دقيقة إلى ثلاث دقائق ⏳" });
+    try {
+      await tg("sendChatAction", { chat_id, action: "upload_video" });
+      const bytes = await generateVideo(prompt);
+      if (!bytes || !(await sendVideoFile(chat_id, bytes, "🎬 تفضل! / Here you go!"))) {
+        await tg("sendMessage", { chat_id, text: "😔 ما قدرت أنشئ الفيديو الحين، جرّب وصف ثاني بعد شوي." });
+        await updateUser(chat_id, { video_job_active: false });
+        return;
+      }
+      await updateUser(chat_id, {
+        video_job_active: false,
+        last_video_at: new Date().toISOString(),
+        videos_used: (user?.videos_used || 0) + 1,
+      });
+    } catch (e) {
+      console.error("video err", String(e));
+      await updateUser(chat_id, { video_job_active: false });
+      await tg("sendMessage", { chat_id, text: "😔 صار خطأ بإنشاء الفيديو، جرّب بعد شوي." });
+    }
+    return;
+  }
 
   // ===== image request =====
   if (/^\/(image|img|صورة)/i.test(text) || naturalImage) {
