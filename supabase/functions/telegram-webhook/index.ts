@@ -143,6 +143,48 @@ async function generateImage(prompt: string): Promise<string | null> {
   return (await tryImage("agnes-image-2.0-flash", prompt)) ?? (await tryImage("agnes-image-2.1-flash", prompt));
 }
 
+// Fetch the generated image bytes and upload them straight to Telegram,
+// so the user sees the photo inside the chat (never a link).
+async function sendGeneratedPhoto(chat_id: number, src: string, caption: string): Promise<boolean> {
+  try {
+    let bytes: Uint8Array;
+    if (src.startsWith("data:")) {
+      const b64 = src.split(",")[1] ?? "";
+      bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    } else {
+      const r = await fetch(src);
+      if (!r.ok) return false;
+      bytes = new Uint8Array(await r.arrayBuffer());
+    }
+    const form = new FormData();
+    form.append("chat_id", String(chat_id));
+    form.append("caption", caption);
+    form.append("photo", new Blob([bytes], { type: "image/png" }), "ro.png");
+    const res = await fetch(`${TG_API}/sendPhoto`, { method: "POST", body: form });
+    const j = await res.json().catch(() => ({}));
+    if (j?.ok) return true;
+    // fall back to document upload (large / non-standard dimensions)
+    const form2 = new FormData();
+    form2.append("chat_id", String(chat_id));
+    form2.append("caption", caption);
+    form2.append("document", new Blob([bytes], { type: "image/png" }), "ro.png");
+    const res2 = await fetch(`${TG_API}/sendDocument`, { method: "POST", body: form2 });
+    const j2 = await res2.json().catch(() => ({}));
+    return !!j2?.ok;
+  } catch (e) {
+    console.error("sendGeneratedPhoto err", String(e));
+    return false;
+  }
+}
+
+const MAIN_KEYBOARD = {
+  keyboard: [
+    [{ text: "🖼 إنشاء صورة / Create image" }],
+    [{ text: "💬 دردشة / Chat" }, { text: "ℹ️ مساعدة / Help" }],
+  ],
+  resize_keyboard: true,
+};
+
 async function handleMessage(msg: any) {
   const chat_id = msg.chat.id;
   const user_id = msg.from?.id ?? chat_id;
